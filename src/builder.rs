@@ -1,5 +1,6 @@
 use crate::{Id, Instruction, Operator, Program};
 
+#[derive(Debug)]
 pub struct ProgramBuilder {
     id_counter: usize,
     program: Program,
