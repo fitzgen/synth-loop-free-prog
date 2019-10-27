@@ -2,14 +2,6 @@ use crate::{Id, Operator};
 use std::fmt::Debug;
 use z3::ast::{Ast, Bool, BV as BitVec};
 
-fn fresh_input(context: &z3::Context) -> BitVec {
-    BitVec::fresh_const(context, "input", 32)
-}
-
-fn fresh_output(context: &z3::Context) -> BitVec {
-    BitVec::fresh_const(context, "output", 32)
-}
-
 fn bit_vec_from_i32(context: &z3::Context, val: i32) -> BitVec {
     BitVec::from_i64(context, val as i64, 32)
 }
@@ -41,9 +33,9 @@ pub trait Component: Debug {
     }
 }
 
-pub fn const_() -> Box<dyn Component> {
+pub fn const_(val: Option<i32>) -> Box<dyn Component> {
     #[derive(Debug)]
-    struct Const;
+    struct Const(Option<i32>);
 
     impl Component for Const {
         fn arity(&self) -> usize {
@@ -51,25 +43,37 @@ pub fn const_() -> Box<dyn Component> {
         }
 
         fn make_operator(&self, immediates: &[i32], _operands: &[Id]) -> Operator {
-            Operator::Const(immediates[0])
+            if let Some(val) = self.0 {
+                Operator::Const(val)
+            } else {
+                Operator::Const(immediates[0])
+            }
         }
 
         fn make_expression<'a>(
             &self,
-            _context: &'a z3::Context,
+            context: &'a z3::Context,
             immediates: &[BitVec<'a>],
             _operands: &[BitVec<'a>],
             output: &BitVec<'a>,
         ) -> Bool<'a> {
-            immediates[0]._eq(output)
+            if let Some(val) = self.0 {
+                BitVec::from_i64(context, val as i64, 32)._eq(output)
+            } else {
+                immediates[0]._eq(output)
+            }
         }
 
         fn immediates(&self) -> usize {
-            1
+            if self.0.is_some() {
+                0
+            } else {
+                1
+            }
         }
     }
 
-    Box::new(Const) as _
+    Box::new(Const(val)) as _
 }
 
 pub fn eqz() -> Box<dyn Component> {

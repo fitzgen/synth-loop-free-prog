@@ -9,7 +9,7 @@ pub use component::Component;
 pub use operator::Operator;
 
 use rand::{Rng, SeedableRng};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt::{self, Display};
 use z3::ast::{Ast, Bool, Int, BV as BitVec};
 
@@ -538,6 +538,32 @@ impl Program {
 
         let exprs: Vec<&_> = exprs.iter().collect();
         Bool::from_bool(context, true).and(&exprs)
+    }
+
+    pub fn dce(&mut self) {
+        let mut used = HashSet::new();
+        used.insert(self.instructions.last().unwrap().result);
+
+        for inst in self.instructions.iter().rev() {
+            if !used.contains(&inst.result) {
+                continue;
+            }
+
+            inst.operator.operands(|op| {
+                used.insert(op);
+            });
+        }
+
+        self.instructions.retain(|inst| used.contains(&inst.result));
+
+        let mut renumbering = HashMap::new();
+        for (i, inst) in self.instructions.iter_mut().enumerate() {
+            inst.operator.operands_mut(|x| *x = renumbering[x]);
+
+            let old = renumbering.insert(inst.result, Id(i));
+            debug_assert!(old.is_none());
+            inst.result = Id(i);
+        }
     }
 }
 

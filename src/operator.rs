@@ -77,6 +77,76 @@ impl Operator {
             | Operator::Rotr(_, _) => 2,
         }
     }
+
+    pub fn operands(&self, mut f: impl FnMut(Id)) {
+        match *self {
+            Operator::Var | Operator::Const(_) => {}
+            Operator::Eqz(a) | Operator::Clz(a) | Operator::Ctz(a) | Operator::Popcnt(a) => f(a),
+            Operator::Eq(a, b)
+            | Operator::Ne(a, b)
+            | Operator::LtS(a, b)
+            | Operator::LtU(a, b)
+            | Operator::GtS(a, b)
+            | Operator::GtU(a, b)
+            | Operator::LeS(a, b)
+            | Operator::LeU(a, b)
+            | Operator::GeS(a, b)
+            | Operator::GeU(a, b)
+            | Operator::Add(a, b)
+            | Operator::Sub(a, b)
+            | Operator::Mul(a, b)
+            | Operator::DivS(a, b)
+            | Operator::DivU(a, b)
+            | Operator::RemS(a, b)
+            | Operator::RemU(a, b)
+            | Operator::And(a, b)
+            | Operator::Or(a, b)
+            | Operator::Xor(a, b)
+            | Operator::Shl(a, b)
+            | Operator::ShrS(a, b)
+            | Operator::ShrU(a, b)
+            | Operator::Rotl(a, b)
+            | Operator::Rotr(a, b) => {
+                f(a);
+                f(b);
+            }
+        }
+    }
+
+    pub fn operands_mut(&mut self, mut f: impl FnMut(&mut Id)) {
+        match self {
+            Operator::Var | Operator::Const(_) => {}
+            Operator::Eqz(a) | Operator::Clz(a) | Operator::Ctz(a) | Operator::Popcnt(a) => f(a),
+            Operator::Eq(a, b)
+            | Operator::Ne(a, b)
+            | Operator::LtS(a, b)
+            | Operator::LtU(a, b)
+            | Operator::GtS(a, b)
+            | Operator::GtU(a, b)
+            | Operator::LeS(a, b)
+            | Operator::LeU(a, b)
+            | Operator::GeS(a, b)
+            | Operator::GeU(a, b)
+            | Operator::Add(a, b)
+            | Operator::Sub(a, b)
+            | Operator::Mul(a, b)
+            | Operator::DivS(a, b)
+            | Operator::DivU(a, b)
+            | Operator::RemS(a, b)
+            | Operator::RemU(a, b)
+            | Operator::And(a, b)
+            | Operator::Or(a, b)
+            | Operator::Xor(a, b)
+            | Operator::Shl(a, b)
+            | Operator::ShrS(a, b)
+            | Operator::ShrU(a, b)
+            | Operator::Rotl(a, b)
+            | Operator::Rotr(a, b) => {
+                f(a);
+                f(b);
+            }
+        }
+    }
 }
 
 impl Display for Operator {
