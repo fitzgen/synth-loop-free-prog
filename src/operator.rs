@@ -1,7 +1,7 @@
 use crate::Id;
 use std::fmt::{self, Display};
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Operator {
     // Declare a new variable.
     Var,
@@ -75,6 +75,12 @@ impl Operator {
             | Operator::ShrU(_, _)
             | Operator::Rotl(_, _)
             | Operator::Rotr(_, _) => 2,
+        }
+    }
+
+    pub fn immediates(&self, mut f: impl FnMut(i32)) {
+        if let Operator::Const(c) = *self {
+            f(c);
         }
     }
 
