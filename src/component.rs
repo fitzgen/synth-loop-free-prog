@@ -2,28 +2,29 @@ use crate::{Id, Operator};
 use std::fmt::Debug;
 use z3::ast::{Ast, BV as BitVec};
 
-fn bit_vec_from_i32(context: &z3::Context, val: i32) -> BitVec {
-    BitVec::from_i64(context, val as i64, 32)
+fn bit_vec_from_u64(context: &z3::Context, val: u64, bit_width: u32) -> BitVec {
+    BitVec::from_i64(context, val as i64, bit_width)
 }
 
-fn zero(context: &z3::Context) -> BitVec {
-    bit_vec_from_i32(context, 0)
+fn zero(context: &z3::Context, bit_width: u32) -> BitVec {
+    bit_vec_from_u64(context, 0, bit_width)
 }
 
-fn one(context: &z3::Context) -> BitVec {
-    bit_vec_from_i32(context, 1)
+fn one(context: &z3::Context, bit_width: u32) -> BitVec {
+    bit_vec_from_u64(context, 1, bit_width)
 }
 
 pub trait Component: Debug {
     fn arity(&self) -> usize;
 
-    fn make_operator(&self, immediates: &[i32], operands: &[Id]) -> Operator;
+    fn make_operator(&self, immediates: &[u64], operands: &[Id]) -> Operator;
 
     fn make_expression<'a>(
         &self,
         context: &'a z3::Context,
         immediates: &[BitVec<'a>],
         operands: &[BitVec<'a>],
+        bit_width: u32,
     ) -> BitVec<'a>;
 
     /// How many immediates does this component require?
@@ -33,14 +34,14 @@ pub trait Component: Debug {
 }
 
 #[derive(Debug)]
-struct Const(Option<i32>);
+struct Const(Option<u64>);
 
 impl Component for Const {
     fn arity(&self) -> usize {
         0
     }
 
-    fn make_operator(&self, immediates: &[i32], _operands: &[Id]) -> Operator {
+    fn make_operator(&self, immediates: &[u64], _operands: &[Id]) -> Operator {
         if let Some(val) = self.0 {
             Operator::Const(val)
         } else {
@@ -53,9 +54,10 @@ impl Component for Const {
         context: &'a z3::Context,
         immediates: &[BitVec<'a>],
         _operands: &[BitVec<'a>],
+        bit_width: u32,
     ) -> BitVec<'a> {
         if let Some(val) = self.0 {
-            BitVec::from_i64(context, val as i64, 32)
+            BitVec::from_i64(context, val as i64, bit_width)
         } else {
             immediates[0].clone()
         }
@@ -70,7 +72,7 @@ impl Component for Const {
     }
 }
 
-pub fn const_(val: Option<i32>) -> Box<dyn Component> {
+pub fn const_(val: Option<u64>) -> Box<dyn Component> {
     Box::new(Const(val)) as _
 }
 
@@ -82,7 +84,7 @@ impl Component for Eqz {
         1
     }
 
-    fn make_operator(&self, _immediates: &[i32], operands: &[Id]) -> Operator {
+    fn make_operator(&self, _immediates: &[u64], operands: &[Id]) -> Operator {
         Operator::Eqz(operands[0])
     }
 
@@ -91,10 +93,11 @@ impl Component for Eqz {
         context: &'a z3::Context,
         _immediates: &[BitVec<'a>],
         operands: &[BitVec<'a>],
+        bit_width: u32,
     ) -> BitVec<'a> {
-        zero(context)
+        zero(context, bit_width)
             ._eq(&operands[0])
-            .ite(&one(context), &zero(context))
+            .ite(&one(context, bit_width), &zero(context, bit_width))
     }
 }
 
@@ -110,7 +113,7 @@ impl Component for Clz {
         1
     }
 
-    fn make_operator(&self, _immediates: &[i32], operands: &[Id]) -> Operator {
+    fn make_operator(&self, _immediates: &[u64], operands: &[Id]) -> Operator {
         Operator::Clz(operands[0])
     }
 
@@ -119,25 +122,27 @@ impl Component for Clz {
         context: &'a z3::Context,
         _immediates: &[BitVec<'a>],
         operands: &[BitVec<'a>],
+        bit_width: u32,
     ) -> BitVec<'a> {
         fn clz<'a>(
             context: &'a z3::Context,
             input: &BitVec<'a>,
             zero_bit: &BitVec<'a>,
+            bit_width: u32,
             i: u32,
         ) -> BitVec<'a> {
-            if i == 32 {
-                bit_vec_from_i32(context, 32)
+            if i == bit_width {
+                bit_vec_from_u64(context, i as u64, bit_width)
             } else {
                 input.extract(i, i)._eq(&zero_bit).ite(
-                    &bit_vec_from_i32(context, i as i32),
-                    &clz(context, input, zero_bit, i + 1),
+                    &bit_vec_from_u64(context, i as u64, bit_width),
+                    &clz(context, input, zero_bit, bit_width, i + 1),
                 )
             }
         }
 
         let zero_bit = BitVec::from_i64(context, 0, 1);
-        clz(context, &operands[0], &zero_bit, 0)
+        clz(context, &operands[0], &zero_bit, bit_width, 0)
     }
 }
 
@@ -153,7 +158,7 @@ impl Component for Ctz {
         1
     }
 
-    fn make_operator(&self, _immediates: &[i32], operands: &[Id]) -> Operator {
+    fn make_operator(&self, _immediates: &[u64], operands: &[Id]) -> Operator {
         Operator::Ctz(operands[0])
     }
 
@@ -162,25 +167,30 @@ impl Component for Ctz {
         context: &'a z3::Context,
         _immediates: &[BitVec<'a>],
         operands: &[BitVec<'a>],
+        bit_width: u32,
     ) -> BitVec<'a> {
         fn ctz<'a>(
             context: &'a z3::Context,
             input: &BitVec<'a>,
             zero_bit: &BitVec<'a>,
+            bit_width: u32,
             i: u32,
         ) -> BitVec<'a> {
-            if i == 0 {
-                bit_vec_from_i32(context, 8)
+            if i == bit_width {
+                bit_vec_from_u64(context, i as u64, bit_width)
             } else {
-                input.extract(31 - i, 31 - i)._eq(&zero_bit).ite(
-                    &bit_vec_from_i32(context, i as i32),
-                    &ctz(context, input, zero_bit, i + 1),
-                )
+                input
+                    .extract(bit_width - i - 1, bit_width - i - 1)
+                    ._eq(&zero_bit)
+                    .ite(
+                        &bit_vec_from_u64(context, i as u64, bit_width),
+                        &ctz(context, input, zero_bit, bit_width, i + 1),
+                    )
             }
         }
 
         let zero_bit = BitVec::from_i64(context, 0, 1);
-        ctz(context, &operands[0], &zero_bit, 0)
+        ctz(context, &operands[0], &zero_bit, bit_width, 0)
     }
 }
 
@@ -196,7 +206,7 @@ impl Component for Popcnt {
         1
     }
 
-    fn make_operator(&self, _immediates: &[i32], operands: &[Id]) -> Operator {
+    fn make_operator(&self, _immediates: &[u64], operands: &[Id]) -> Operator {
         Operator::Popcnt(operands[0])
     }
 
@@ -205,9 +215,10 @@ impl Component for Popcnt {
         _context: &'a z3::Context,
         _immediates: &[BitVec<'a>],
         operands: &[BitVec<'a>],
+        bit_width: u32,
     ) -> BitVec<'a> {
-        let mut bits: Vec<_> = (0..32)
-            .map(|i| operands[0].extract(i, i).zero_ext(31))
+        let mut bits: Vec<_> = (0..bit_width)
+            .map(|i| operands[0].extract(i, i).zero_ext(bit_width - 1))
             .collect();
         let initial = bits.pop().unwrap();
         bits.iter().fold(initial, |a, b| a.bvadd(b))
@@ -226,7 +237,7 @@ impl Component for Eq {
         2
     }
 
-    fn make_operator(&self, _immediates: &[i32], operands: &[Id]) -> Operator {
+    fn make_operator(&self, _immediates: &[u64], operands: &[Id]) -> Operator {
         Operator::Eq(operands[0], operands[1])
     }
 
@@ -235,10 +246,11 @@ impl Component for Eq {
         context: &'a z3::Context,
         _immediates: &[BitVec<'a>],
         operands: &[BitVec<'a>],
+        bit_width: u32,
     ) -> BitVec<'a> {
         operands[0]
             ._eq(&operands[1])
-            .ite(&one(context), &zero(context))
+            .ite(&one(context, bit_width), &zero(context, bit_width))
     }
 }
 
@@ -254,7 +266,7 @@ impl Component for Ne {
         2
     }
 
-    fn make_operator(&self, _immediates: &[i32], operands: &[Id]) -> Operator {
+    fn make_operator(&self, _immediates: &[u64], operands: &[Id]) -> Operator {
         Operator::Ne(operands[0], operands[1])
     }
 
@@ -263,10 +275,11 @@ impl Component for Ne {
         context: &'a z3::Context,
         _immediates: &[BitVec<'a>],
         operands: &[BitVec<'a>],
+        bit_width: u32,
     ) -> BitVec<'a> {
         operands[0]
             ._eq(&operands[1])
-            .ite(&zero(context), &one(context))
+            .ite(&zero(context, bit_width), &one(context, bit_width))
     }
 }
 
@@ -282,7 +295,7 @@ impl Component for LtS {
         2
     }
 
-    fn make_operator(&self, _immediates: &[i32], operands: &[Id]) -> Operator {
+    fn make_operator(&self, _immediates: &[u64], operands: &[Id]) -> Operator {
         Operator::LtS(operands[0], operands[1])
     }
 
@@ -291,10 +304,11 @@ impl Component for LtS {
         context: &'a z3::Context,
         _immediates: &[BitVec<'a>],
         operands: &[BitVec<'a>],
+        bit_width: u32,
     ) -> BitVec<'a> {
         operands[0]
             .bvslt(&operands[1])
-            .ite(&one(context), &zero(context))
+            .ite(&one(context, bit_width), &zero(context, bit_width))
     }
 }
 
@@ -310,7 +324,7 @@ impl Component for LtU {
         2
     }
 
-    fn make_operator(&self, _immediates: &[i32], operands: &[Id]) -> Operator {
+    fn make_operator(&self, _immediates: &[u64], operands: &[Id]) -> Operator {
         Operator::LtU(operands[0], operands[1])
     }
 
@@ -319,10 +333,11 @@ impl Component for LtU {
         context: &'a z3::Context,
         _immediates: &[BitVec<'a>],
         operands: &[BitVec<'a>],
+        bit_width: u32,
     ) -> BitVec<'a> {
         operands[0]
             .bvult(&operands[1])
-            .ite(&one(context), &zero(context))
+            .ite(&one(context, bit_width), &zero(context, bit_width))
     }
 }
 
@@ -338,7 +353,7 @@ impl Component for GtS {
         2
     }
 
-    fn make_operator(&self, _immediates: &[i32], operands: &[Id]) -> Operator {
+    fn make_operator(&self, _immediates: &[u64], operands: &[Id]) -> Operator {
         Operator::GtS(operands[0], operands[1])
     }
 
@@ -347,10 +362,11 @@ impl Component for GtS {
         context: &'a z3::Context,
         _immediates: &[BitVec<'a>],
         operands: &[BitVec<'a>],
+        bit_width: u32,
     ) -> BitVec<'a> {
         operands[0]
             .bvsgt(&operands[1])
-            .ite(&one(context), &zero(context))
+            .ite(&one(context, bit_width), &zero(context, bit_width))
     }
 }
 
@@ -366,7 +382,7 @@ impl Component for GtU {
         2
     }
 
-    fn make_operator(&self, _immediates: &[i32], operands: &[Id]) -> Operator {
+    fn make_operator(&self, _immediates: &[u64], operands: &[Id]) -> Operator {
         Operator::GtU(operands[0], operands[1])
     }
 
@@ -375,10 +391,11 @@ impl Component for GtU {
         context: &'a z3::Context,
         _immediates: &[BitVec<'a>],
         operands: &[BitVec<'a>],
+        bit_width: u32,
     ) -> BitVec<'a> {
         operands[0]
             .bvugt(&operands[1])
-            .ite(&one(context), &zero(context))
+            .ite(&one(context, bit_width), &zero(context, bit_width))
     }
 }
 
@@ -394,7 +411,7 @@ impl Component for LeS {
         2
     }
 
-    fn make_operator(&self, _immediates: &[i32], operands: &[Id]) -> Operator {
+    fn make_operator(&self, _immediates: &[u64], operands: &[Id]) -> Operator {
         Operator::LeS(operands[0], operands[1])
     }
 
@@ -403,10 +420,11 @@ impl Component for LeS {
         context: &'a z3::Context,
         _immediates: &[BitVec<'a>],
         operands: &[BitVec<'a>],
+        bit_width: u32,
     ) -> BitVec<'a> {
         operands[0]
             .bvsle(&operands[1])
-            .ite(&one(context), &zero(context))
+            .ite(&one(context, bit_width), &zero(context, bit_width))
     }
 }
 
@@ -422,7 +440,7 @@ impl Component for LeU {
         2
     }
 
-    fn make_operator(&self, _immediates: &[i32], operands: &[Id]) -> Operator {
+    fn make_operator(&self, _immediates: &[u64], operands: &[Id]) -> Operator {
         Operator::LeU(operands[0], operands[1])
     }
 
@@ -431,10 +449,11 @@ impl Component for LeU {
         context: &'a z3::Context,
         _immediates: &[BitVec<'a>],
         operands: &[BitVec<'a>],
+        bit_width: u32,
     ) -> BitVec<'a> {
         operands[0]
             .bvule(&operands[1])
-            .ite(&one(context), &zero(context))
+            .ite(&one(context, bit_width), &zero(context, bit_width))
     }
 }
 
@@ -450,7 +469,7 @@ impl Component for GeS {
         2
     }
 
-    fn make_operator(&self, _immediates: &[i32], operands: &[Id]) -> Operator {
+    fn make_operator(&self, _immediates: &[u64], operands: &[Id]) -> Operator {
         Operator::GeS(operands[0], operands[1])
     }
 
@@ -459,10 +478,11 @@ impl Component for GeS {
         context: &'a z3::Context,
         _immediates: &[BitVec<'a>],
         operands: &[BitVec<'a>],
+        bit_width: u32,
     ) -> BitVec<'a> {
         operands[0]
             .bvsge(&operands[1])
-            .ite(&one(context), &zero(context))
+            .ite(&one(context, bit_width), &zero(context, bit_width))
     }
 }
 
@@ -478,7 +498,7 @@ impl Component for GeU {
         2
     }
 
-    fn make_operator(&self, _immediates: &[i32], operands: &[Id]) -> Operator {
+    fn make_operator(&self, _immediates: &[u64], operands: &[Id]) -> Operator {
         Operator::GeU(operands[0], operands[1])
     }
 
@@ -487,10 +507,11 @@ impl Component for GeU {
         context: &'a z3::Context,
         _immediates: &[BitVec<'a>],
         operands: &[BitVec<'a>],
+        bit_width: u32,
     ) -> BitVec<'a> {
         operands[0]
             .bvuge(&operands[1])
-            .ite(&one(context), &zero(context))
+            .ite(&one(context, bit_width), &zero(context, bit_width))
     }
 }
 
@@ -506,7 +527,7 @@ impl Component for Add {
         2
     }
 
-    fn make_operator(&self, _immediates: &[i32], operands: &[Id]) -> Operator {
+    fn make_operator(&self, _immediates: &[u64], operands: &[Id]) -> Operator {
         Operator::Add(operands[0], operands[1])
     }
 
@@ -515,6 +536,7 @@ impl Component for Add {
         _context: &'a z3::Context,
         _immediates: &[BitVec<'a>],
         operands: &[BitVec<'a>],
+        _bit_width: u32,
     ) -> BitVec<'a> {
         operands[0].bvadd(&operands[1])
     }
@@ -532,7 +554,7 @@ impl Component for Sub {
         2
     }
 
-    fn make_operator(&self, _immediates: &[i32], operands: &[Id]) -> Operator {
+    fn make_operator(&self, _immediates: &[u64], operands: &[Id]) -> Operator {
         Operator::Sub(operands[0], operands[1])
     }
 
@@ -541,6 +563,7 @@ impl Component for Sub {
         _context: &'a z3::Context,
         _immediates: &[BitVec<'a>],
         operands: &[BitVec<'a>],
+        _bit_width: u32,
     ) -> BitVec<'a> {
         operands[0].bvsub(&operands[1])
     }
@@ -558,7 +581,7 @@ impl Component for Mul {
         2
     }
 
-    fn make_operator(&self, _immediates: &[i32], operands: &[Id]) -> Operator {
+    fn make_operator(&self, _immediates: &[u64], operands: &[Id]) -> Operator {
         Operator::Mul(operands[0], operands[1])
     }
 
@@ -567,6 +590,7 @@ impl Component for Mul {
         _context: &'a z3::Context,
         _immediates: &[BitVec<'a>],
         operands: &[BitVec<'a>],
+        _bit_width: u32,
     ) -> BitVec<'a> {
         operands[0].bvmul(&operands[1])
     }
@@ -584,7 +608,7 @@ impl Component for DivS {
         2
     }
 
-    fn make_operator(&self, _immediates: &[i32], operands: &[Id]) -> Operator {
+    fn make_operator(&self, _immediates: &[u64], operands: &[Id]) -> Operator {
         Operator::DivS(operands[0], operands[1])
     }
 
@@ -593,6 +617,7 @@ impl Component for DivS {
         _context: &'a z3::Context,
         _immediates: &[BitVec<'a>],
         operands: &[BitVec<'a>],
+        _bit_width: u32,
     ) -> BitVec<'a> {
         operands[0].bvsdiv(&operands[1])
     }
@@ -610,7 +635,7 @@ impl Component for DivU {
         2
     }
 
-    fn make_operator(&self, _immediates: &[i32], operands: &[Id]) -> Operator {
+    fn make_operator(&self, _immediates: &[u64], operands: &[Id]) -> Operator {
         Operator::DivU(operands[0], operands[1])
     }
 
@@ -619,6 +644,7 @@ impl Component for DivU {
         _context: &'a z3::Context,
         _immediates: &[BitVec<'a>],
         operands: &[BitVec<'a>],
+        _bit_width: u32,
     ) -> BitVec<'a> {
         operands[0].bvudiv(&operands[1])
     }
@@ -636,7 +662,7 @@ impl Component for RemS {
         2
     }
 
-    fn make_operator(&self, _immediates: &[i32], operands: &[Id]) -> Operator {
+    fn make_operator(&self, _immediates: &[u64], operands: &[Id]) -> Operator {
         Operator::RemS(operands[0], operands[1])
     }
 
@@ -645,6 +671,7 @@ impl Component for RemS {
         _context: &'a z3::Context,
         _immediates: &[BitVec<'a>],
         operands: &[BitVec<'a>],
+        _bit_width: u32,
     ) -> BitVec<'a> {
         operands[0].bvsrem(&operands[1])
     }
@@ -662,7 +689,7 @@ impl Component for RemU {
         2
     }
 
-    fn make_operator(&self, _immediates: &[i32], operands: &[Id]) -> Operator {
+    fn make_operator(&self, _immediates: &[u64], operands: &[Id]) -> Operator {
         Operator::RemU(operands[0], operands[1])
     }
 
@@ -671,6 +698,7 @@ impl Component for RemU {
         _context: &'a z3::Context,
         _immediates: &[BitVec<'a>],
         operands: &[BitVec<'a>],
+        _bit_width: u32,
     ) -> BitVec<'a> {
         operands[0].bvurem(&operands[1])
     }
@@ -688,7 +716,7 @@ impl Component for And {
         2
     }
 
-    fn make_operator(&self, _immediates: &[i32], operands: &[Id]) -> Operator {
+    fn make_operator(&self, _immediates: &[u64], operands: &[Id]) -> Operator {
         Operator::And(operands[0], operands[1])
     }
 
@@ -697,6 +725,7 @@ impl Component for And {
         _context: &'a z3::Context,
         _immediates: &[BitVec<'a>],
         operands: &[BitVec<'a>],
+        _bit_width: u32,
     ) -> BitVec<'a> {
         operands[0].bvand(&operands[1])
     }
@@ -714,7 +743,7 @@ impl Component for Or {
         2
     }
 
-    fn make_operator(&self, _immediates: &[i32], operands: &[Id]) -> Operator {
+    fn make_operator(&self, _immediates: &[u64], operands: &[Id]) -> Operator {
         Operator::Or(operands[0], operands[1])
     }
 
@@ -723,6 +752,7 @@ impl Component for Or {
         _context: &'a z3::Context,
         _immediates: &[BitVec<'a>],
         operands: &[BitVec<'a>],
+        _bit_width: u32,
     ) -> BitVec<'a> {
         operands[0].bvor(&operands[1])
     }
@@ -740,7 +770,7 @@ impl Component for Xor {
         2
     }
 
-    fn make_operator(&self, _immediates: &[i32], operands: &[Id]) -> Operator {
+    fn make_operator(&self, _immediates: &[u64], operands: &[Id]) -> Operator {
         Operator::Xor(operands[0], operands[1])
     }
 
@@ -749,6 +779,7 @@ impl Component for Xor {
         _context: &'a z3::Context,
         _immediates: &[BitVec<'a>],
         operands: &[BitVec<'a>],
+        _bit_width: u32,
     ) -> BitVec<'a> {
         operands[0].bvxor(&operands[1])
     }
@@ -766,7 +797,7 @@ impl Component for Shl {
         2
     }
 
-    fn make_operator(&self, _immediates: &[i32], operands: &[Id]) -> Operator {
+    fn make_operator(&self, _immediates: &[u64], operands: &[Id]) -> Operator {
         Operator::Shl(operands[0], operands[1])
     }
 
@@ -775,6 +806,7 @@ impl Component for Shl {
         _context: &'a z3::Context,
         _immediates: &[BitVec<'a>],
         operands: &[BitVec<'a>],
+        _bit_width: u32,
     ) -> BitVec<'a> {
         operands[0].bvshl(&operands[1])
     }
@@ -792,7 +824,7 @@ impl Component for ShrS {
         2
     }
 
-    fn make_operator(&self, _immediates: &[i32], operands: &[Id]) -> Operator {
+    fn make_operator(&self, _immediates: &[u64], operands: &[Id]) -> Operator {
         Operator::ShrS(operands[0], operands[1])
     }
 
@@ -801,6 +833,7 @@ impl Component for ShrS {
         _context: &'a z3::Context,
         _immediates: &[BitVec<'a>],
         operands: &[BitVec<'a>],
+        _bit_width: u32,
     ) -> BitVec<'a> {
         operands[0].bvashr(&operands[1])
     }
@@ -818,7 +851,7 @@ impl Component for ShrU {
         2
     }
 
-    fn make_operator(&self, _immediates: &[i32], operands: &[Id]) -> Operator {
+    fn make_operator(&self, _immediates: &[u64], operands: &[Id]) -> Operator {
         Operator::ShrU(operands[0], operands[1])
     }
 
@@ -827,6 +860,7 @@ impl Component for ShrU {
         _context: &'a z3::Context,
         _immediates: &[BitVec<'a>],
         operands: &[BitVec<'a>],
+        _bit_width: u32,
     ) -> BitVec<'a> {
         operands[0].bvlshr(&operands[1])
     }
@@ -844,7 +878,7 @@ impl Component for Rotl {
         2
     }
 
-    fn make_operator(&self, _immediates: &[i32], operands: &[Id]) -> Operator {
+    fn make_operator(&self, _immediates: &[u64], operands: &[Id]) -> Operator {
         Operator::Rotl(operands[0], operands[1])
     }
 
@@ -853,6 +887,7 @@ impl Component for Rotl {
         _context: &'a z3::Context,
         _immediates: &[BitVec<'a>],
         operands: &[BitVec<'a>],
+        _bit_width: u32,
     ) -> BitVec<'a> {
         operands[0].bvrotl(&operands[1])
     }
@@ -870,7 +905,7 @@ impl Component for Rotr {
         2
     }
 
-    fn make_operator(&self, _immediates: &[i32], operands: &[Id]) -> Operator {
+    fn make_operator(&self, _immediates: &[u64], operands: &[Id]) -> Operator {
         Operator::Rotr(operands[0], operands[1])
     }
 
@@ -879,6 +914,7 @@ impl Component for Rotr {
         _context: &'a z3::Context,
         _immediates: &[BitVec<'a>],
         operands: &[BitVec<'a>],
+        _bit_width: u32,
     ) -> BitVec<'a> {
         operands[0].bvrotr(&operands[1])
     }
@@ -1021,7 +1057,7 @@ impl Component for Operator {
         Operator::arity(self)
     }
 
-    fn make_operator(&self, immediates: &[i32], operands: &[Id]) -> Operator {
+    fn make_operator(&self, immediates: &[u64], operands: &[Id]) -> Operator {
         with_operator_component!(self, |c| c.make_operator(immediates, operands))
     }
 
@@ -1030,9 +1066,10 @@ impl Component for Operator {
         context: &'a z3::Context,
         immediates: &[BitVec<'a>],
         operands: &[BitVec<'a>],
+        bit_width: u32,
     ) -> BitVec<'a> {
         with_operator_component!(self, |c| {
-            c.make_expression(context, immediates, operands)
+            c.make_expression(context, immediates, operands, bit_width)
         })
     }
 

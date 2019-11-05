@@ -35,7 +35,7 @@ impl ProgramBuilder {
         result
     }
 
-    pub fn const_(&mut self, c: i32) -> Id {
+    pub fn const_(&mut self, c: u64) -> Id {
         let result = self.next_id();
         self.program.instructions.push(Instruction {
             result,

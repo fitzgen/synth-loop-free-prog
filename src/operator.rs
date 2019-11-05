@@ -7,7 +7,7 @@ pub enum Operator {
     Var,
 
     // A constant value.
-    Const(i32),
+    Const(u64),
 
     // Unary operators.
     Eqz(Id),
@@ -78,7 +78,7 @@ impl Operator {
         }
     }
 
-    pub fn immediates(&self, mut f: impl FnMut(i32)) {
+    pub fn immediates(&self, mut f: impl FnMut(u64)) {
         if let Operator::Const(c) = *self {
             f(c);
         }
@@ -159,7 +159,7 @@ impl Display for Operator {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Operator::Var => write!(f, "var"),
-            Operator::Const(c) => write!(f, "const {}", c),
+            Operator::Const(c) => write!(f, "const {:#X}", c),
             Operator::Eqz(id) => write!(f, "eqz {}", id),
             Operator::Clz(id) => write!(f, "clz {}", id),
             Operator::Ctz(id) => write!(f, "ctz {}", id),

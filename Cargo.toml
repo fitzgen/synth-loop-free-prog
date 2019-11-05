@@ -9,4 +9,3 @@ edition = "2018"
 [dependencies]
 z3 = "0.4.0"
 rand = { version = "0.7.2", features = ["small_rng"] }
-itertools = "0.8.0"
