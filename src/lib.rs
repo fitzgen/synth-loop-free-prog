@@ -293,16 +293,16 @@ impl Program {
 
         let mut bit_width = 2;
         'cegis: loop {
-            dbg!(&inputs);
+            // dbg!(&inputs);
             let assignments = Self::finite_synthesis(context, library, spec, &inputs, bit_width)?;
 
             let mut p = assignments.to_program(spec.arity(), library);
             p.dce();
-            println!("-------------\n{}-----------------", p);
+            // println!("-------------\n{}-----------------", p);
 
             let mut verifying_with_more_bits = false;
             loop {
-                println!("verifying at bit width = {}", bit_width);
+                // println!("verifying at bit width = {}", bit_width);
                 match Self::verification(context, library, spec, &assignments, bit_width)? {
                     Verification::WorksForAllInputs => {
                         debug_assert!(bit_width <= 32);
@@ -310,7 +310,7 @@ impl Program {
                         if bit_width == 32 {
                             return Ok(assignments.to_program(spec.arity(), library));
                         } else {
-                            println!("verified at bit width = {}", bit_width);
+                            // println!("verified at bit width = {}", bit_width);
                             bit_width *= 2;
                             verifying_with_more_bits = true;
                             // TODO: if the synthesized assignments use
@@ -320,8 +320,8 @@ impl Program {
                         }
                     }
                     Verification::FailsOnInputs(new_inputs) => {
-                        println!("counter example found at bit width = {}", bit_width);
-                        let is_new = inputs.insert(dbg!(new_inputs));
+                        // println!("counter example found at bit width = {}", bit_width);
+                        let is_new = inputs.insert(new_inputs);
                         assert!(is_new || verifying_with_more_bits);
                         continue 'cegis;
                     }
@@ -365,7 +365,7 @@ impl Program {
         let works_for_inputs: Vec<&_> = works_for_inputs.iter().collect();
 
         let solver = z3::Solver::new(context);
-        solver.assert(&dbg!(wfp.and(&works_for_inputs)));
+        solver.assert(&wfp.and(&works_for_inputs));
 
         match solver.check() {
             z3::SatResult::Unknown => Err(Error::SynthesisUnknown),
@@ -426,7 +426,7 @@ impl Program {
         let not_spec = spec.not();
 
         let solver = z3::Solver::new(context);
-        solver.assert(dbg!(&lib.and(&[&conn, &not_spec])));
+        solver.assert(&lib.and(&[&conn, &not_spec]));
 
         match solver.check() {
             z3::SatResult::Unknown => Err(Error::SynthesisUnknown),
@@ -721,43 +721,43 @@ mod tests {
         //     ],
         // };
 
-        // let library = Library {
-        //     components: vec![
-        //         component::const_(Some(1)),
-        //         component::shr_u(),
-        //         component::const_(Some(0x5555_5555_5555_5555)),
-        //         component::and(),
-        //         component::sub(),
-        //         component::const_(Some(0x3333_3333_3333_3333)),
-        //         component::and(),
-        //         component::const_(Some(2)),
-        //         component::shr_u(),
-        //         component::const_(Some(0x3333_3333_3333_3333)),
-        //         component::and(),
-        //         component::add(),
-        //         component::const_(Some(4)),
-        //         component::shr_u(),
-        //         component::add(),
-        //         component::const_(Some(0x0f0f_0f0f_0f0f_0f0f)),
-        //         component::and(),
-        //     ],
-        // };
+        let library = Library {
+            components: vec![
+                component::const_(Some(1)),
+                component::shr_u(),
+                component::const_(Some(0x5555_5555_5555_5555)),
+                component::and(),
+                component::sub(),
+                component::const_(Some(0x3333_3333_3333_3333)),
+                component::and(),
+                component::const_(Some(2)),
+                component::shr_u(),
+                component::const_(Some(0x3333_3333_3333_3333)),
+                component::and(),
+                component::add(),
+                component::const_(Some(4)),
+                component::shr_u(),
+                component::add(),
+                component::const_(Some(0x0f0f_0f0f_0f0f_0f0f)),
+                component::and(),
+            ],
+        };
 
         let mut builder = ProgramBuilder::new();
 
-        let a = builder.var();
-        let b = builder.const_(1);
-        let c = builder.sub(a, b);
-        let _ = builder.and(a, c);
-
         // let a = builder.var();
-        // let _ = builder.popcnt(a);
+        // let b = builder.const_(1);
+        // let c = builder.sub(a, b);
+        // let _ = builder.and(a, c);
+
+        let a = builder.var();
+        let _ = builder.popcnt(a);
 
         let spec = builder.finish();
 
         let mut p = Program::synthesize(&context, &spec, &library).unwrap();
-        println!("Synthesized:\n\n{}", p);
+        // println!("Synthesized:\n\n{}", p);
         p.dce();
-        println!("DCE'd:\n\n{}", p);
+        // println!("DCE'd:\n\n{}", p);
     }
 }
