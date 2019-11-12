@@ -6,13 +6,10 @@ fn main() {
 
     let context = z3::Context::new(&config);
 
-    let problems: Vec<fn(&z3::Context) -> Program> = vec![
-        p1 as _, p2 as _,
-        // p23 as _
-    ];
+    let problems: Vec<fn(&z3::Context) -> Program> = vec![p1 as _, p2 as _, p23 as _];
 
     for (i, p) in problems.into_iter().enumerate() {
-        println!("========== p{} ==========", i);
+        println!("========== p{} ==========", i + 1);
         let then = std::time::Instant::now();
         let mut program = p(&context);
         let elapsed = then.elapsed();
@@ -54,53 +51,34 @@ fn p2(context: &z3::Context) -> Program {
     Program::synthesize(&context, &spec, &library).unwrap()
 }
 
-// fn p23(context: &z3::Context) {
-//     // let library = Library::brahma_std();
+fn p23(context: &z3::Context) -> Program {
+    let library = Library {
+        components: vec![
+            component::const_(Some(1)),
+            component::shr_u(),
+            component::const_(Some(0x5555_5555_5555_5555)),
+            component::and(),
+            component::sub(),
+            component::const_(Some(0x3333_3333_3333_3333)),
+            component::and(),
+            component::const_(Some(2)),
+            component::shr_u(),
+            component::const_(Some(0x3333_3333_3333_3333)),
+            component::and(),
+            component::add(),
+            component::const_(Some(4)),
+            component::shr_u(),
+            component::add(),
+            component::const_(Some(0x0f0f_0f0f_0f0f_0f0f)),
+            component::and(),
+        ],
+    };
 
-//     // let library = Library {
-//     //     components: vec![
-//     //         component::const_(Some(1)),
-//     //         component::sub(),
-//     //         component::and(),
-//     //     ],
-//     // };
+    let mut builder = ProgramBuilder::new();
+    let a = builder.var();
+    let _ = builder.popcnt(a);
 
-//     let library = Library {
-//         components: vec![
-//             component::const_(Some(1)),
-//             component::shr_u(),
-//             component::const_(Some(0x5555_5555_5555_5555)),
-//             component::and(),
-//             component::sub(),
-//             component::const_(Some(0x3333_3333_3333_3333)),
-//             component::and(),
-//             component::const_(Some(2)),
-//             component::shr_u(),
-//             component::const_(Some(0x3333_3333_3333_3333)),
-//             component::and(),
-//             component::add(),
-//             component::const_(Some(4)),
-//             component::shr_u(),
-//             component::add(),
-//             component::const_(Some(0x0f0f_0f0f_0f0f_0f0f)),
-//             component::and(),
-//         ],
-//     };
+    let spec = builder.finish();
 
-//     let mut builder = ProgramBuilder::new();
-
-//     // let a = builder.var();
-//     // let b = builder.const_(1);
-//     // let c = builder.sub(a, b);
-//     // let _ = builder.and(a, c);
-
-//     let a = builder.var();
-//     let _ = builder.popcnt(a);
-
-//     let spec = builder.finish();
-
-//     let mut p = Program::synthesize(&context, &spec, &library).unwrap();
-//     println!("Synthesized:\n\n{}", p);
-//     p.dce();
-//     println!("DCE'd:\n\n{}", p);
-// }
+    Program::synthesize(&context, &spec, &library).unwrap()
+}
