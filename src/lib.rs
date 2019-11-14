@@ -11,6 +11,8 @@ pub use operator::Operator;
 use rand::{Rng, SeedableRng};
 use std::collections::{HashMap, HashSet};
 use std::fmt::{self, Display};
+use std::iter::FromIterator;
+use std::ops::Range;
 use z3::ast::{Ast, Bool, BV as BitVec};
 
 fn fresh_immediate(context: &z3::Context, bit_width: u32) -> BitVec {
@@ -107,48 +109,6 @@ impl Library {
             ],
         }
     }
-
-    fn fresh_locations<'a>(&self, context: &'a z3::Context, num_inputs: usize) -> LocationVars<'a> {
-        let inputs = (0..num_inputs)
-            .map(|_| fresh_line(context, "input_location"))
-            .collect();
-        let params = self
-            .components
-            .iter()
-            .flat_map(|c| (0..c.arity()).map(|_| fresh_line(context, "param_location")))
-            .collect();
-        let results = self
-            .components
-            .iter()
-            .map(|_| fresh_line(context, "result_location"))
-            .collect();
-        LocationVars {
-            inputs,
-            params,
-            results,
-        }
-    }
-
-    fn fresh_immediates<'a>(&self, context: &'a z3::Context, bit_width: u32) -> Vec<BitVec<'a>> {
-        self.components
-            .iter()
-            .flat_map(|c| (0..c.immediates()).map(|_| fresh_immediate(context, bit_width)))
-            .collect()
-    }
-
-    fn fresh_param_vars<'a>(&self, context: &'a z3::Context, bit_width: u32) -> Vec<BitVec<'a>> {
-        self.components
-            .iter()
-            .flat_map(|c| (0..c.arity()).map(|_| fresh_param(context, bit_width)))
-            .collect()
-    }
-
-    fn fresh_result_vars<'a>(&self, context: &'a z3::Context, bit_width: u32) -> Vec<BitVec<'a>> {
-        self.components
-            .iter()
-            .map(|_| fresh_result(context, bit_width))
-            .collect()
-    }
 }
 
 type Line<'a> = BitVec<'a>;
@@ -177,6 +137,158 @@ struct LocationVars<'a> {
     inputs: Vec<Line<'a>>,
     params: Vec<Line<'a>>,
     results: Vec<Line<'a>>,
+}
+
+impl<'a> LocationVars<'a> {
+    fn new(context: &'a z3::Context, library: &Library, num_inputs: usize) -> Self {
+        let inputs = (0..num_inputs)
+            .map(|_| fresh_line(context, "input_location"))
+            .collect();
+        let params = library
+            .components
+            .iter()
+            .flat_map(|c| (0..c.arity()).map(|_| fresh_line(context, "param_location")))
+            .collect();
+        let results = library
+            .components
+            .iter()
+            .map(|_| fresh_line(context, "result_location"))
+            .collect();
+        LocationVars {
+            inputs,
+            params,
+            results,
+        }
+    }
+
+    fn inputs_range(&self) -> Range<usize> {
+        0..self.inputs.len()
+    }
+
+    fn params_range(&self) -> Range<usize> {
+        let start = self.inputs.len();
+        let end = self.inputs.len() + self.params.len();
+        start..end
+    }
+
+    fn results_range(&self) -> Range<usize> {
+        let start = self.inputs.len() + self.params.len();
+        let end = start + self.results.len();
+        start..end
+    }
+
+    fn invalid_connections(&self, library: &Library) -> HashSet<(usize, usize)> {
+        let mut invalid_connections = HashSet::new();
+
+        // We never assign an input's location to another input's location, so
+        // don't even consider these connections.
+        for (i, a) in self.inputs_range().enumerate() {
+            for b in self.inputs_range().skip(i) {
+                invalid_connections.insert((a, b));
+            }
+        }
+
+        // Similarly, a well-formed program will never assign a param's location
+        // as another param; it should only be one of the original inputs or the
+        // result of another component.
+        for (i, p) in self.params_range().enumerate() {
+            for q in self.params_range().skip(i) {
+                invalid_connections.insert((p, q));
+            }
+        }
+
+        // Finally, a well-formed will never have a component with its own
+        // result as a parameter.
+        let params = &mut self.params_range();
+        for (r, c) in self.results_range().zip(&library.components) {
+            for p in params.take(c.arity()) {
+                invalid_connections.insert((r, p));
+            }
+        }
+
+        invalid_connections
+    }
+
+    /// 5.1 Encoding Well-formed Programs
+    fn well_formed_program(
+        &self,
+        context: &'a z3::Context,
+        library: &Library,
+        invalid_connections: &mut HashSet<(usize, usize)>,
+    ) -> Bool<'a> {
+        let mut wfp = Vec::with_capacity(
+            // Acyclic and consistent.
+            2
+                // Assignment of inputs.
+                + self.inputs.len()
+                // Lower and upper bounds on params.
+                + self.params.len() * 2
+                // Lower and upper bounds on results.
+                + self.results.len() * 2,
+        );
+
+        wfp.push(self.consistent(context, invalid_connections));
+        wfp.push(self.acyclic(context, library));
+
+        let i_len = line_from_u32(context, self.inputs.len() as u32);
+        let m = line_from_u32(context, (self.results.len() + self.inputs.len()) as u32);
+        let zero = line_from_u32(context, 0);
+
+        for (i, l) in self.inputs.iter().enumerate() {
+            let i = line_from_u32(context, i as u32);
+            wfp.push(l._eq(&i));
+        }
+
+        for l in &self.params {
+            // 0 <= l
+            wfp.push(line_le(&zero, l));
+            // l < M
+            wfp.push(line_lt(l, &m));
+        }
+
+        for l in &self.results {
+            // |i| <= l
+            wfp.push(line_le(&i_len, l));
+            // l < m
+            wfp.push(line_lt(l, &m));
+        }
+
+        let wfp: Vec<&_> = wfp.iter().collect();
+        Bool::from_bool(context, true).and(&wfp)
+    }
+
+    fn consistent(
+        &self,
+        context: &'a z3::Context,
+        invalid_connections: &mut HashSet<(usize, usize)>,
+    ) -> Bool<'a> {
+        let mut cons = vec![];
+        for (i, (i_x, x)) in self.results_range().zip(&self.results).enumerate() {
+            for (i_y, y) in self.results_range().zip(&self.results).skip(i + 1) {
+                invalid_connections.insert((i_x, i_y));
+                cons.push(x._eq(y).not());
+            }
+        }
+        let cons: Vec<&_> = cons.iter().collect();
+        Bool::from_bool(context, true).and(&cons)
+    }
+
+    fn acyclic(&self, context: &'a z3::Context, library: &Library) -> Bool<'a> {
+        let mut acycs = vec![];
+        let mut params = self.params.iter();
+        let mut results = self.results.iter();
+
+        for c in &library.components {
+            let result_location = results.next().unwrap();
+            for _ in 0..c.arity() {
+                let param_location = params.next().unwrap();
+                acycs.push(line_lt(param_location, result_location));
+            }
+        }
+
+        let acycs: Vec<&_> = acycs.iter().collect();
+        Bool::from_bool(context, true).and(&acycs)
+    }
 }
 
 #[derive(Debug)]
@@ -273,12 +385,23 @@ enum Verification {
     FailsOnInputs(Vec<u64>),
 }
 
-impl Program {
-    pub fn synthesize<'a>(
-        context: &'a z3::Context,
-        spec: &impl Specification,
-        library: &Library,
-    ) -> Result<Program, Error> {
+struct Synthesizer<'a, S>
+where
+    S: 'a + Specification,
+{
+    context: &'a z3::Context,
+    library: &'a Library,
+    spec: &'a S,
+    locations: LocationVars<'a>,
+    well_formed_program: Bool<'a>,
+    invalid_connections: HashSet<(usize, usize)>,
+}
+
+impl<'a, S> Synthesizer<'a, S>
+where
+    S: 'a + Specification,
+{
+    fn new(context: &'a z3::Context, library: &'a Library, spec: &'a S) -> Result<Self, Error> {
         if library.components.is_empty() {
             return Err(Error::NoComponents);
         }
@@ -286,86 +409,91 @@ impl Program {
             return Err(Error::LibraryTooLarge);
         }
 
-        // Arbitrarily choose the initial inputs for finite synthesis.
-        let mut rng = rand::rngs::SmallRng::seed_from_u64(42);
-        let mut inputs: HashSet<Vec<u64>> = HashSet::new();
-        inputs.insert((0..spec.arity()).map(|_| rng.gen::<u64>()).collect());
+        let locations = LocationVars::new(context, library, spec.arity());
+        let mut invalid_connections = locations.invalid_connections(library);
+        let well_formed_program =
+            locations.well_formed_program(context, library, &mut invalid_connections);
+        Ok(Synthesizer {
+            context,
+            library,
+            spec,
+            locations,
+            well_formed_program,
+            invalid_connections,
+        })
+    }
 
-        let mut bit_width = 2;
-        'cegis: loop {
-            // dbg!(&inputs);
-            let assignments = Self::finite_synthesis(context, library, spec, &inputs, bit_width)?;
+    fn is_invalid_connection(&self, i: usize, j: usize) -> bool {
+        debug_assert!(
+            i < self.locations.inputs.len()
+                + self.locations.params.len()
+                + self.locations.results.len()
+        );
+        debug_assert!(
+            j < self.locations.inputs.len()
+                + self.locations.params.len()
+                + self.locations.results.len()
+        );
+        self.invalid_connections.contains(&(i, j)) || self.invalid_connections.contains(&(j, i))
+    }
 
-            let mut p = assignments.to_program(spec.arity(), library);
-            p.dce();
-            // println!("-------------\n{}-----------------", p);
+    fn fresh_immediates(&self, bit_width: u32) -> Vec<BitVec<'a>> {
+        self.library
+            .components
+            .iter()
+            .flat_map(|c| (0..c.immediates()).map(|_| fresh_immediate(self.context, bit_width)))
+            .collect()
+    }
 
-            let mut verifying_with_more_bits = false;
-            loop {
-                // println!("verifying at bit width = {}", bit_width);
-                match Self::verification(context, library, spec, &assignments, bit_width)? {
-                    Verification::WorksForAllInputs => {
-                        debug_assert!(bit_width <= 32);
-                        debug_assert!(bit_width.is_power_of_two());
-                        if bit_width == 32 {
-                            return Ok(assignments.to_program(spec.arity(), library));
-                        } else {
-                            // println!("verified at bit width = {}", bit_width);
-                            bit_width *= 2;
-                            verifying_with_more_bits = true;
-                            // TODO: if the synthesized assignments use
-                            // immediate constants, try to extend the constants
-                            // for the wider bit width in various ways. See
-                            // *Program Synthesis for Program Analysis*.
-                        }
-                    }
-                    Verification::FailsOnInputs(new_inputs) => {
-                        // println!("counter example found at bit width = {}", bit_width);
-                        let is_new = inputs.insert(new_inputs);
-                        assert!(is_new || verifying_with_more_bits);
-                        continue 'cegis;
-                    }
-                }
-            }
-        }
+    fn fresh_param_vars(&self, bit_width: u32) -> Vec<BitVec<'a>> {
+        self.library
+            .components
+            .iter()
+            .flat_map(|c| (0..c.arity()).map(|_| fresh_param(self.context, bit_width)))
+            .collect()
+    }
+
+    fn fresh_result_vars(&self, bit_width: u32) -> Vec<BitVec<'a>> {
+        self.library
+            .components
+            .iter()
+            .map(|_| fresh_result(self.context, bit_width))
+            .collect()
     }
 
     fn finite_synthesis(
-        context: &z3::Context,
-        library: &Library,
-        spec: &impl Specification,
+        &self,
         inputs: &HashSet<Vec<u64>>,
         bit_width: u32,
     ) -> Result<Assignments, Error> {
-        let locations = library.fresh_locations(context, inputs.iter().next().unwrap().len());
-        let immediates = library.fresh_immediates(context, bit_width);
-        let wfp = Self::well_formed_program(context, library, spec, &locations);
-
+        let immediates = self.fresh_immediates(bit_width);
         let mut works_for_inputs = Vec::with_capacity(inputs.len() * 4);
 
         for input in inputs {
-            let params = library.fresh_param_vars(context, bit_width);
-            let results = library.fresh_result_vars(context, bit_width);
+            let params = self.fresh_param_vars(bit_width);
+            let results = self.fresh_result_vars(bit_width);
             let inputs: Vec<_> = input
                 .iter()
-                .map(|i| BitVec::from_i64(context, *i as i64, bit_width))
+                .map(|i| BitVec::from_i64(self.context, *i as i64, bit_width))
                 .collect();
-            let output = fresh_output(context, bit_width);
+            let output = fresh_output(self.context, bit_width);
 
-            let lib = Self::library(context, library, &immediates, &params, &results, bit_width);
+            let lib = self.library(&immediates, &params, &results, bit_width);
             works_for_inputs.push(lib);
 
-            let conn = Self::connectivity(context, &locations, &inputs, &output, &params, &results);
+            let conn = self.connectivity(&inputs, &output, &params, &results);
             works_for_inputs.push(conn);
 
-            let spec = spec.make_expression(context, &inputs, &output, bit_width);
+            let spec = self
+                .spec
+                .make_expression(self.context, &inputs, &output, bit_width);
             works_for_inputs.push(spec);
         }
 
         let works_for_inputs: Vec<&_> = works_for_inputs.iter().collect();
 
-        let solver = z3::Solver::new(context);
-        solver.assert(&wfp.and(&works_for_inputs));
+        let solver = z3::Solver::new(self.context);
+        solver.assert(&self.well_formed_program.and(&works_for_inputs));
 
         match solver.check() {
             z3::SatResult::Unknown => Err(Error::SynthesisUnknown),
@@ -384,12 +512,14 @@ impl Program {
                             as u64
                     })
                     .collect();
-                let params = locations
+                let params = self
+                    .locations
                     .params
                     .iter()
                     .map(|p| model.eval(p).unwrap().as_u64().unwrap() as usize)
                     .collect();
-                let results = locations
+                let results = self
+                    .locations
                     .results
                     .iter()
                     .map(|r| model.eval(r).unwrap().as_u64().unwrap() as usize)
@@ -403,26 +533,26 @@ impl Program {
         }
     }
 
-    fn verification<'a>(
-        context: &'a z3::Context,
-        library: &Library,
-        spec: &impl Specification,
+    fn verification(
+        &self,
         assignments: &Assignments,
         bit_width: u32,
     ) -> Result<Verification, Error> {
-        let inputs: Vec<_> = (0..spec.arity())
-            .map(|_| fresh_input(context, bit_width))
+        let inputs: Vec<_> = (0..self.spec.arity())
+            .map(|_| fresh_input(self.context, bit_width))
             .collect();
-        let output = fresh_output(context, bit_width);
+        let output = fresh_output(self.context, bit_width);
 
-        let mut p = assignments.to_program(spec.arity(), library);
-        p.dce();
-        let prog = p.make_expression(context, &inputs, &output, bit_width);
+        let mut prog = assignments.to_program(self.spec.arity(), self.library);
+        prog.dce();
+        let prog = prog.make_expression(self.context, &inputs, &output, bit_width);
 
-        let spec = spec.make_expression(context, &inputs, &output, bit_width);
+        let spec = self
+            .spec
+            .make_expression(self.context, &inputs, &output, bit_width);
         let not_spec = spec.not();
 
-        let solver = z3::Solver::new(context);
+        let solver = z3::Solver::new(self.context);
         solver.assert(&prog.and(&[&not_spec]));
 
         match solver.check() {
@@ -443,133 +573,55 @@ impl Program {
         }
     }
 
-    /// 5.1 Encoding Well-formed Programs
-    fn well_formed_program<'a>(
-        context: &'a z3::Context,
-        library: &Library,
-        spec: &impl Specification,
-        locations: &LocationVars<'a>,
-    ) -> Bool<'a> {
-        let mut wfp = Vec::with_capacity(
-            // Acyclic and consistent.
-            2
-                // Assignment of inputs.
-                + locations.inputs.len()
-                // Lower and upper bounds on params.
-                + locations.params.len() * 2
-                // Lower and upper bounds on results.
-                + locations.results.len() * 2,
-        );
-
-        wfp.push(Self::consistent(context, locations));
-        wfp.push(Self::acyclic(context, library, locations));
-
-        let i_len = line_from_u32(context, spec.arity() as u32);
-        let m = line_from_u32(context, (locations.results.len() + spec.arity()) as u32);
-        let zero = line_from_u32(context, 0);
-
-        for (i, l) in locations.inputs.iter().enumerate() {
-            let i = line_from_u32(context, i as u32);
-            wfp.push(l._eq(&i));
-        }
-
-        for l in &locations.params {
-            // 0 <= l
-            wfp.push(line_le(&zero, l));
-            // l < M
-            wfp.push(line_lt(l, &m));
-        }
-
-        for l in &locations.results {
-            // |i| <= l
-            wfp.push(line_le(&i_len, l));
-            // l < m
-            wfp.push(line_lt(l, &m));
-        }
-
-        let wfp: Vec<&_> = wfp.iter().collect();
-        Bool::from_bool(context, true).and(&wfp)
-    }
-
-    fn consistent<'a>(context: &'a z3::Context, locations: &LocationVars<'a>) -> Bool<'a> {
-        let mut cons = vec![];
-        for (i, x) in locations.results.iter().enumerate() {
-            for y in &locations.results[i + 1..] {
-                cons.push(x._eq(y).not());
-            }
-        }
-        let cons: Vec<&_> = cons.iter().collect();
-        Bool::from_bool(context, true).and(&cons)
-    }
-
-    fn acyclic<'a>(
-        context: &'a z3::Context,
-        library: &Library,
-        locations: &LocationVars<'a>,
-    ) -> Bool<'a> {
-        let mut acycs = vec![];
-        let mut params = locations.params.iter();
-        let mut results = locations.results.iter();
-
-        for c in &library.components {
-            let result_location = results.next().unwrap();
-            for _ in 0..c.arity() {
-                let param_location = params.next().unwrap();
-                acycs.push(line_lt(param_location, result_location));
-            }
-        }
-
-        let acycs: Vec<&_> = acycs.iter().collect();
-        Bool::from_bool(context, true).and(&acycs)
-    }
-
     /// 5.2 Encoding Dataflow in Programs
-    fn connectivity<'a>(
-        context: &'a z3::Context,
-        locations: &LocationVars<'a>,
+    fn connectivity(
+        &self,
         inputs: &[BitVec<'a>],
         output: &BitVec<'a>,
         params: &[BitVec<'a>],
         results: &[BitVec<'a>],
     ) -> Bool<'a> {
-        let locs_to_vars: Vec<_> = locations
+        let locs_to_vars: Vec<_> = self
+            .locations
             .inputs
             .iter()
             .zip(inputs)
-            .chain(locations.params.iter().zip(params))
-            .chain(locations.results.iter().zip(results))
+            .chain(self.locations.params.iter().zip(params))
+            .chain(self.locations.results.iter().zip(results))
             .collect();
 
         let mut conn =
             Vec::with_capacity(locs_to_vars.len() * locs_to_vars.len() + locs_to_vars.len());
 
-        let last_loc = line_from_u32(context, inputs.len() as u32 + results.len() as u32 - 1);
+        let last_loc = line_from_u32(self.context, inputs.len() as u32 + results.len() as u32 - 1);
         for (i, (l_x, x)) in locs_to_vars.iter().enumerate() {
             conn.push(l_x._eq(&last_loc).implies(&x._eq(output)));
 
-            for (l_y, y) in &locs_to_vars[i + 1..] {
+            for (j, (l_y, y)) in locs_to_vars.iter().enumerate().skip(i + 1) {
+                if self.is_invalid_connection(i, j) {
+                    continue;
+                }
                 conn.push(l_x._eq(l_y).implies(&x._eq(y)));
             }
         }
 
         let conn: Vec<&_> = conn.iter().collect();
-        Bool::from_bool(context, true).and(&conn)
+        Bool::from_bool(self.context, true).and(&conn)
     }
 
-    fn library<'a>(
-        context: &'a z3::Context,
-        library: &Library,
+    fn library(
+        &self,
         immediates: &[BitVec<'a>],
         params: &[BitVec<'a>],
         results: &[BitVec<'a>],
         bit_width: u32,
     ) -> Bool<'a> {
-        let mut exprs = Vec::with_capacity(library.components.len());
+        let mut exprs = Vec::with_capacity(self.library.components.len());
         let mut immediates = immediates;
         let mut params = params;
         let mut results = results.iter();
 
-        for c in &library.components {
+        for c in &self.library.components {
             let (imms, rest) = immediates.split_at(c.immediates());
             immediates = rest;
 
@@ -579,18 +631,79 @@ impl Program {
             let result = results.next().unwrap();
 
             exprs.push(
-                c.make_expression(context, imms, inputs, bit_width)
+                c.make_expression(self.context, imms, inputs, bit_width)
                     ._eq(result),
             );
         }
 
         let exprs: Vec<&_> = exprs.iter().collect();
-        Bool::from_bool(context, true).and(&exprs)
+        Bool::from_bool(self.context, true).and(&exprs)
+    }
+
+    fn synthesize(&self) -> Result<Program, Error> {
+        // Arbitrarily choose the initial inputs for finite synthesis.
+        let mut rng = rand::rngs::SmallRng::seed_from_u64(42);
+        let mut inputs: HashSet<Vec<u64>> = HashSet::new();
+        inputs.insert((0..self.spec.arity()).map(|_| rng.gen::<u64>()).collect());
+
+        let mut bit_width = 2;
+        'cegis: loop {
+            // dbg!(&inputs);
+            let assignments = self.finite_synthesis(&inputs, bit_width)?;
+
+            // let mut p = assignments.to_program(self.spec.arity(), self.library);
+            // p.dce();
+            // println!("-------------\n{}-----------------", p);
+
+            let mut verifying_with_more_bits = false;
+            loop {
+                // println!("verifying at bit width = {}", bit_width);
+                match self.verification(&assignments, bit_width)? {
+                    Verification::WorksForAllInputs => {
+                        debug_assert!(bit_width <= 32);
+                        debug_assert!(bit_width.is_power_of_two());
+                        if bit_width == 32 {
+                            return Ok(assignments.to_program(self.spec.arity(), self.library));
+                        } else {
+                            // println!("verified at bit width = {}", bit_width);
+                            bit_width *= 2;
+                            verifying_with_more_bits = true;
+                            // TODO: if the synthesized assignments use
+                            // immediate constants, try to extend the constants
+                            // for the wider bit width in various ways. See
+                            // *Program Synthesis for Program Analysis*.
+                        }
+                    }
+                    Verification::FailsOnInputs(new_inputs) => {
+                        // println!("counter example found at bit width = {}", bit_width);
+                        let is_new = inputs.insert(new_inputs);
+                        assert!(is_new || verifying_with_more_bits);
+                        continue 'cegis;
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl Program {
+    pub fn synthesize<'a>(
+        context: &'a z3::Context,
+        spec: &impl Specification,
+        library: &Library,
+    ) -> Result<Program, Error> {
+        let synthesizer = Synthesizer::new(context, library, spec)?;
+        synthesizer.synthesize()
     }
 
     pub fn dce(&mut self) {
-        let mut used = HashSet::new();
-        used.insert(self.instructions.last().unwrap().result);
+        let mut used: HashSet<Id> = HashSet::from_iter(
+            self.instructions
+                .iter()
+                .take_while(|inst| inst.operator == Operator::Var)
+                .map(|inst| inst.result)
+                .chain(Some(self.instructions.last().unwrap().result)),
+        );
 
         for inst in self.instructions.iter().rev() {
             if !used.contains(&inst.result) {
