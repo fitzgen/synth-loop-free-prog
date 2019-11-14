@@ -410,23 +410,20 @@ impl Program {
         assignments: &Assignments,
         bit_width: u32,
     ) -> Result<Verification, Error> {
-        let (locations, immediates) = assignments.to_vars(context, spec.arity(), bit_width);
-
         let inputs: Vec<_> = (0..spec.arity())
             .map(|_| fresh_input(context, bit_width))
             .collect();
         let output = fresh_output(context, bit_width);
-        let params = library.fresh_param_vars(context, bit_width);
-        let results = library.fresh_result_vars(context, bit_width);
 
-        let lib = Self::library(context, library, &immediates, &params, &results, bit_width);
-        let conn = Self::connectivity(context, &locations, &inputs, &output, &params, &results);
+        let mut p = assignments.to_program(spec.arity(), library);
+        p.dce();
+        let prog = p.make_expression(context, &inputs, &output, bit_width);
 
         let spec = spec.make_expression(context, &inputs, &output, bit_width);
         let not_spec = spec.not();
 
         let solver = z3::Solver::new(context);
-        solver.assert(&lib.and(&[&conn, &not_spec]));
+        solver.assert(&prog.and(&[&not_spec]));
 
         match solver.check() {
             z3::SatResult::Unknown => Err(Error::SynthesisUnknown),
