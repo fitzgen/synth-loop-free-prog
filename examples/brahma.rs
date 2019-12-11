@@ -1,24 +1,45 @@
 use synth_loop_free_prog::*;
 
+macro_rules! benchmarks {
+    ( $($name:ident,)* ) => {
+        vec![
+            $(
+                (stringify!($name), $name as _),
+            )*
+        ]
+    }
+}
+
 fn main() {
+    env_logger::init();
+
     let mut config = z3::Config::new();
+    config.set_bool_param_value("auto_config", false);
     config.set_model_generation(true);
 
     let context = z3::Context::new(&config);
 
-    let problems: Vec<fn(&z3::Context) -> Program> = vec![
-        p1 as _, p2 as _, p3 as _, p4 as _, p5 as _, p6 as _, p7 as _, p8 as _,
-        p9 as _, // p23 as _
-    ];
+    let problems: Vec<(&'static str, fn(&z3::Context) -> Program)> = benchmarks! {
+        p1,
+        p2,
+        p3,
+        p4,
+        p5,
+        p6,
+        p7,
+        p8,
+        p9,
+        // p23,
+    };
 
-    for (i, p) in problems.into_iter().enumerate() {
-        println!("========== p{} ==========", i + 1);
+    for (name, p) in problems {
+        println!("==================== {} ====================", name);
         let then = std::time::Instant::now();
         let mut program = p(&context);
         let elapsed = then.elapsed();
 
         println!(
-            "\nElapsed:\n\n{}.{:03}s\n",
+            "\nElapsed: {}.{:03}s\n",
             elapsed.as_secs(),
             elapsed.subsec_millis()
         );
@@ -137,7 +158,8 @@ fn p8(context: &z3::Context) -> Program {
 }
 
 fn p9(context: &z3::Context) -> Program {
-    let library = Library::brahma_std();
+    let mut library = Library::brahma_std();
+    library.components.push(component::const_(Some(31)));
 
     let mut builder = ProgramBuilder::new();
     let a = builder.var();

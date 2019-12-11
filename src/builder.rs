@@ -2,7 +2,7 @@ use crate::{Id, Instruction, Operator, Program};
 
 #[derive(Debug)]
 pub struct ProgramBuilder {
-    id_counter: usize,
+    id_counter: u32,
     program: Program,
 }
 

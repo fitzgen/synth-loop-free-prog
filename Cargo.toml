@@ -9,3 +9,10 @@ edition = "2018"
 [dependencies]
 z3 = "0.4.0"
 rand = { version = "0.7.2", features = ["small_rng"] }
+log = { version = "0.4.8", optional = true }
+
+[dev-dependencies]
+env_logger = "0.7.1"
+
+[profile.release]
+debug = true
