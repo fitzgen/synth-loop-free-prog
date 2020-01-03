@@ -43,6 +43,9 @@ pub enum Operator {
     ShrU(Id, Id),
     Rotl(Id, Id),
     Rotr(Id, Id),
+
+    // If-then-else.
+    Select(Id, Id, Id),
 }
 
 impl Operator {
@@ -75,6 +78,7 @@ impl Operator {
             | Operator::ShrU(_, _)
             | Operator::Rotl(_, _)
             | Operator::Rotr(_, _) => 2,
+            Operator::Select(_, _, _) => 3,
         }
     }
 
@@ -116,6 +120,11 @@ impl Operator {
                 f(a);
                 f(b);
             }
+            Operator::Select(a, b, c) => {
+                f(a);
+                f(b);
+                f(c);
+            }
         }
     }
 
@@ -150,6 +159,11 @@ impl Operator {
             | Operator::Rotr(a, b) => {
                 f(a);
                 f(b);
+            }
+            Operator::Select(a, b, c) => {
+                f(a);
+                f(b);
+                f(c);
             }
         }
     }
@@ -189,6 +203,7 @@ impl Display for Operator {
             Operator::ShrU(a, b) => write!(f, "shr_u {}, {}", a, b),
             Operator::Rotl(a, b) => write!(f, "rotl {}, {}", a, b),
             Operator::Rotr(a, b) => write!(f, "rotr {}, {}", a, b),
+            Operator::Select(a, b, c) => write!(f, "select {}, {}, {}", a, b, c),
         }
     }
 }

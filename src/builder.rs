@@ -98,7 +98,7 @@ impl ProgramBuilder {
         result
     }
 
-    pub fn lts(&mut self, a: Id, b: Id) -> Id {
+    pub fn lt_s(&mut self, a: Id, b: Id) -> Id {
         let result = self.next_id();
         self.program.instructions.push(Instruction {
             result,
@@ -107,7 +107,7 @@ impl ProgramBuilder {
         result
     }
 
-    pub fn ltu(&mut self, a: Id, b: Id) -> Id {
+    pub fn lt_u(&mut self, a: Id, b: Id) -> Id {
         let result = self.next_id();
         self.program.instructions.push(Instruction {
             result,
@@ -116,7 +116,7 @@ impl ProgramBuilder {
         result
     }
 
-    pub fn gts(&mut self, a: Id, b: Id) -> Id {
+    pub fn gt_s(&mut self, a: Id, b: Id) -> Id {
         let result = self.next_id();
         self.program.instructions.push(Instruction {
             result,
@@ -125,7 +125,7 @@ impl ProgramBuilder {
         result
     }
 
-    pub fn gtu(&mut self, a: Id, b: Id) -> Id {
+    pub fn gt_u(&mut self, a: Id, b: Id) -> Id {
         let result = self.next_id();
         self.program.instructions.push(Instruction {
             result,
@@ -134,7 +134,7 @@ impl ProgramBuilder {
         result
     }
 
-    pub fn les(&mut self, a: Id, b: Id) -> Id {
+    pub fn le_s(&mut self, a: Id, b: Id) -> Id {
         let result = self.next_id();
         self.program.instructions.push(Instruction {
             result,
@@ -143,7 +143,7 @@ impl ProgramBuilder {
         result
     }
 
-    pub fn leu(&mut self, a: Id, b: Id) -> Id {
+    pub fn le_u(&mut self, a: Id, b: Id) -> Id {
         let result = self.next_id();
         self.program.instructions.push(Instruction {
             result,
@@ -152,7 +152,7 @@ impl ProgramBuilder {
         result
     }
 
-    pub fn ges(&mut self, a: Id, b: Id) -> Id {
+    pub fn ge_s(&mut self, a: Id, b: Id) -> Id {
         let result = self.next_id();
         self.program.instructions.push(Instruction {
             result,
@@ -161,7 +161,7 @@ impl ProgramBuilder {
         result
     }
 
-    pub fn geu(&mut self, a: Id, b: Id) -> Id {
+    pub fn ge_u(&mut self, a: Id, b: Id) -> Id {
         let result = self.next_id();
         self.program.instructions.push(Instruction {
             result,
@@ -301,6 +301,15 @@ impl ProgramBuilder {
         self.program.instructions.push(Instruction {
             result,
             operator: Operator::Rotr(a, b),
+        });
+        result
+    }
+
+    pub fn select(&mut self, a: Id, b: Id, c: Id) -> Id {
+        let result = self.next_id();
+        self.program.instructions.push(Instruction {
+            result,
+            operator: Operator::Select(a, b, c),
         });
         result
     }

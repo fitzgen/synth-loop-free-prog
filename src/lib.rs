@@ -990,4 +990,26 @@ mod tests {
         p.dce();
         println!("{}", p.to_string());
     }
+
+    #[test]
+    fn synthesize_select() {
+        let mut config = z3::Config::new();
+        config.set_model_generation(true);
+
+        let context = z3::Context::new(&config);
+
+        let mut library = Library::brahma_std();
+        library.components.push(component::select());
+
+        let mut builder = ProgramBuilder::new();
+        let a = builder.var();
+        let b = builder.var();
+        let c = builder.var();
+        let _ = builder.select(a, b, c);
+        let spec = builder.finish();
+
+        let mut p = Program::synthesize(&context, &spec, &library).unwrap();
+        p.dce();
+        println!("{}", p.to_string());
+    }
 }

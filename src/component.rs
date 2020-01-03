@@ -924,6 +924,33 @@ pub fn rotr() -> Box<dyn Component> {
     Box::new(Rotr) as _
 }
 
+#[derive(Debug)]
+struct Select;
+
+impl Component for Select {
+    fn arity(&self) -> usize {
+        3
+    }
+
+    fn make_operator(&self, _immediates: &[u64], operands: &[Id]) -> Operator {
+        Operator::Select(operands[0], operands[1], operands[2])
+    }
+
+    fn make_expression<'a>(
+        &self,
+        context: &'a z3::Context,
+        _immediates: &[BitVec<'a>],
+        operands: &[BitVec<'a>],
+        bit_width: u32,
+    ) -> BitVec<'a> {
+        operands[0]._eq(&zero(context, bit_width)).ite(&operands[2], &operands[1])
+    }
+}
+
+pub fn select() -> Box<dyn Component> {
+    Box::new(Select) as _
+}
+
 macro_rules! with_operator_component {
     ( $me:expr , |$c:ident| $body:expr ) => {
         match $me {
@@ -1046,6 +1073,10 @@ macro_rules! with_operator_component {
             }
             Operator::Rotr(_, _) => {
                 let $c = Rotr;
+                $body
+            }
+            Operator::Select(_, _, _) => {
+                let $c = Select;
                 $body
             }
         }
