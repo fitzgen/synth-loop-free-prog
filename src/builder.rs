@@ -2,14 +2,12 @@ use crate::{Id, Instruction, Operator, Program};
 
 #[derive(Debug)]
 pub struct ProgramBuilder {
-    id_counter: u32,
     program: Program,
 }
 
 impl ProgramBuilder {
     pub fn new() -> ProgramBuilder {
         ProgramBuilder {
-            id_counter: 0,
             program: Program {
                 instructions: vec![],
             },
@@ -20,13 +18,19 @@ impl ProgramBuilder {
         self.program
     }
 
-    fn next_id(&mut self) -> Id {
-        let id = Id(self.id_counter);
-        self.id_counter += 1;
-        id
+    fn next_id(&self) -> Id {
+        Id(self.program.instructions.len() as u32)
     }
 
     pub fn var(&mut self) -> Id {
+        assert!(
+            self.program
+                .instructions
+                .iter()
+                .all(|inst| inst.operator == Operator::Var),
+            "All `var`s must be at the start of the program"
+        );
+
         let result = self.next_id();
         self.program.instructions.push(Instruction {
             result,

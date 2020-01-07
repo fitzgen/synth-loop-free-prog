@@ -15,7 +15,7 @@ fn one(context: &z3::Context, bit_width: u32) -> BitVec {
 }
 
 pub trait Component: Debug {
-    fn arity(&self) -> usize;
+    fn operand_arity(&self) -> usize;
 
     fn make_operator(&self, immediates: &[u64], operands: &[Id]) -> Operator;
 
@@ -28,7 +28,7 @@ pub trait Component: Debug {
     ) -> BitVec<'a>;
 
     /// How many immediates does this component require?
-    fn immediates(&self) -> usize {
+    fn immediate_arity(&self) -> usize {
         0
     }
 }
@@ -37,7 +37,7 @@ pub trait Component: Debug {
 struct Const(Option<u64>);
 
 impl Component for Const {
-    fn arity(&self) -> usize {
+    fn operand_arity(&self) -> usize {
         0
     }
 
@@ -63,7 +63,7 @@ impl Component for Const {
         }
     }
 
-    fn immediates(&self) -> usize {
+    fn immediate_arity(&self) -> usize {
         if self.0.is_some() {
             0
         } else {
@@ -80,7 +80,7 @@ pub fn const_(val: Option<u64>) -> Box<dyn Component> {
 struct Eqz;
 
 impl Component for Eqz {
-    fn arity(&self) -> usize {
+    fn operand_arity(&self) -> usize {
         1
     }
 
@@ -109,7 +109,7 @@ pub fn eqz() -> Box<dyn Component> {
 struct Clz;
 
 impl Component for Clz {
-    fn arity(&self) -> usize {
+    fn operand_arity(&self) -> usize {
         1
     }
 
@@ -154,7 +154,7 @@ pub fn clz() -> Box<dyn Component> {
 struct Ctz;
 
 impl Component for Ctz {
-    fn arity(&self) -> usize {
+    fn operand_arity(&self) -> usize {
         1
     }
 
@@ -202,7 +202,7 @@ pub fn ctz() -> Box<dyn Component> {
 struct Popcnt;
 
 impl Component for Popcnt {
-    fn arity(&self) -> usize {
+    fn operand_arity(&self) -> usize {
         1
     }
 
@@ -233,7 +233,7 @@ pub fn popcnt() -> Box<dyn Component> {
 struct Eq;
 
 impl Component for Eq {
-    fn arity(&self) -> usize {
+    fn operand_arity(&self) -> usize {
         2
     }
 
@@ -262,7 +262,7 @@ pub fn eq() -> Box<dyn Component> {
 struct Ne;
 
 impl Component for Ne {
-    fn arity(&self) -> usize {
+    fn operand_arity(&self) -> usize {
         2
     }
 
@@ -291,7 +291,7 @@ pub fn ne() -> Box<dyn Component> {
 struct LtS;
 
 impl Component for LtS {
-    fn arity(&self) -> usize {
+    fn operand_arity(&self) -> usize {
         2
     }
 
@@ -320,7 +320,7 @@ pub fn lt_s() -> Box<dyn Component> {
 struct LtU;
 
 impl Component for LtU {
-    fn arity(&self) -> usize {
+    fn operand_arity(&self) -> usize {
         2
     }
 
@@ -349,7 +349,7 @@ pub fn lt_u() -> Box<dyn Component> {
 struct GtS;
 
 impl Component for GtS {
-    fn arity(&self) -> usize {
+    fn operand_arity(&self) -> usize {
         2
     }
 
@@ -378,7 +378,7 @@ pub fn gt_s() -> Box<dyn Component> {
 struct GtU;
 
 impl Component for GtU {
-    fn arity(&self) -> usize {
+    fn operand_arity(&self) -> usize {
         2
     }
 
@@ -407,7 +407,7 @@ pub fn gt_u() -> Box<dyn Component> {
 struct LeS;
 
 impl Component for LeS {
-    fn arity(&self) -> usize {
+    fn operand_arity(&self) -> usize {
         2
     }
 
@@ -436,7 +436,7 @@ pub fn le_s() -> Box<dyn Component> {
 struct LeU;
 
 impl Component for LeU {
-    fn arity(&self) -> usize {
+    fn operand_arity(&self) -> usize {
         2
     }
 
@@ -465,7 +465,7 @@ pub fn le_u() -> Box<dyn Component> {
 struct GeS;
 
 impl Component for GeS {
-    fn arity(&self) -> usize {
+    fn operand_arity(&self) -> usize {
         2
     }
 
@@ -494,7 +494,7 @@ pub fn ge_s() -> Box<dyn Component> {
 struct GeU;
 
 impl Component for GeU {
-    fn arity(&self) -> usize {
+    fn operand_arity(&self) -> usize {
         2
     }
 
@@ -523,7 +523,7 @@ pub fn ge_u() -> Box<dyn Component> {
 struct Add;
 
 impl Component for Add {
-    fn arity(&self) -> usize {
+    fn operand_arity(&self) -> usize {
         2
     }
 
@@ -550,7 +550,7 @@ pub fn add() -> Box<dyn Component> {
 struct Sub;
 
 impl Component for Sub {
-    fn arity(&self) -> usize {
+    fn operand_arity(&self) -> usize {
         2
     }
 
@@ -577,7 +577,7 @@ pub fn sub() -> Box<dyn Component> {
 struct Mul;
 
 impl Component for Mul {
-    fn arity(&self) -> usize {
+    fn operand_arity(&self) -> usize {
         2
     }
 
@@ -604,7 +604,7 @@ pub fn mul() -> Box<dyn Component> {
 struct DivS;
 
 impl Component for DivS {
-    fn arity(&self) -> usize {
+    fn operand_arity(&self) -> usize {
         2
     }
 
@@ -631,7 +631,7 @@ pub fn div_s() -> Box<dyn Component> {
 struct DivU;
 
 impl Component for DivU {
-    fn arity(&self) -> usize {
+    fn operand_arity(&self) -> usize {
         2
     }
 
@@ -658,7 +658,7 @@ pub fn div_u() -> Box<dyn Component> {
 struct RemS;
 
 impl Component for RemS {
-    fn arity(&self) -> usize {
+    fn operand_arity(&self) -> usize {
         2
     }
 
@@ -685,7 +685,7 @@ pub fn rem_s() -> Box<dyn Component> {
 struct RemU;
 
 impl Component for RemU {
-    fn arity(&self) -> usize {
+    fn operand_arity(&self) -> usize {
         2
     }
 
@@ -712,7 +712,7 @@ pub fn rem_u() -> Box<dyn Component> {
 struct And;
 
 impl Component for And {
-    fn arity(&self) -> usize {
+    fn operand_arity(&self) -> usize {
         2
     }
 
@@ -739,7 +739,7 @@ pub fn and() -> Box<dyn Component> {
 struct Or;
 
 impl Component for Or {
-    fn arity(&self) -> usize {
+    fn operand_arity(&self) -> usize {
         2
     }
 
@@ -766,7 +766,7 @@ pub fn or() -> Box<dyn Component> {
 struct Xor;
 
 impl Component for Xor {
-    fn arity(&self) -> usize {
+    fn operand_arity(&self) -> usize {
         2
     }
 
@@ -793,7 +793,7 @@ pub fn xor() -> Box<dyn Component> {
 struct Shl;
 
 impl Component for Shl {
-    fn arity(&self) -> usize {
+    fn operand_arity(&self) -> usize {
         2
     }
 
@@ -820,7 +820,7 @@ pub fn shl() -> Box<dyn Component> {
 struct ShrS;
 
 impl Component for ShrS {
-    fn arity(&self) -> usize {
+    fn operand_arity(&self) -> usize {
         2
     }
 
@@ -847,7 +847,7 @@ pub fn shr_s() -> Box<dyn Component> {
 struct ShrU;
 
 impl Component for ShrU {
-    fn arity(&self) -> usize {
+    fn operand_arity(&self) -> usize {
         2
     }
 
@@ -874,7 +874,7 @@ pub fn shr_u() -> Box<dyn Component> {
 struct Rotl;
 
 impl Component for Rotl {
-    fn arity(&self) -> usize {
+    fn operand_arity(&self) -> usize {
         2
     }
 
@@ -901,7 +901,7 @@ pub fn rotl() -> Box<dyn Component> {
 struct Rotr;
 
 impl Component for Rotr {
-    fn arity(&self) -> usize {
+    fn operand_arity(&self) -> usize {
         2
     }
 
@@ -928,7 +928,7 @@ pub fn rotr() -> Box<dyn Component> {
 struct Select;
 
 impl Component for Select {
-    fn arity(&self) -> usize {
+    fn operand_arity(&self) -> usize {
         3
     }
 
@@ -943,7 +943,9 @@ impl Component for Select {
         operands: &[BitVec<'a>],
         bit_width: u32,
     ) -> BitVec<'a> {
-        operands[0]._eq(&zero(context, bit_width)).ite(&operands[2], &operands[1])
+        operands[0]
+            ._eq(&zero(context, bit_width))
+            .ite(&operands[2], &operands[1])
     }
 }
 
@@ -1084,7 +1086,7 @@ macro_rules! with_operator_component {
 }
 
 impl Component for Operator {
-    fn arity(&self) -> usize {
+    fn operand_arity(&self) -> usize {
         Operator::arity(self)
     }
 
@@ -1104,7 +1106,7 @@ impl Component for Operator {
         })
     }
 
-    fn immediates(&self) -> usize {
-        with_operator_component!(self, |c| c.immediates())
+    fn immediate_arity(&self) -> usize {
+        with_operator_component!(self, |c| c.immediate_arity())
     }
 }
