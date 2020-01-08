@@ -6,6 +6,10 @@
 
 * TODO: actually use the narrowest width for lines that we can
 
+* DONE: it seems like attempting to synthesize a too-minimal program takes too
+  long, so it would be faster to go longest -> shortest, keeping only the last,
+  shortest program we synthesized.
+
 # Notes from reading Souper source
 
 * `include/souper/Infer/InstSynthesis.h`

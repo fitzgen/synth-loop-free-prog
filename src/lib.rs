@@ -159,21 +159,67 @@ impl Library {
     /// standard library.
     pub fn brahma_std() -> Self {
         Library {
+            // 7.3 Choice of Multi-set of Base Components:
+            //
+            // > The standard library included 12 components, one each for
+            // > performing standard operations, such as bitwise-and,
+            // > bitwise-or, bitwise-not, add-one, bitwise-xor, shift-right,
+            // > comparison, add, and subtract operations."
+            //
+            // They don't actually spell out exactly what's included, but here
+            // are the set of components used in the benchmark problems they say
+            // are solved with just the standard components:
+            //
+            //  1. add
+            //  2. and
+            //  3. neg
+            //  4. not
+            //  5. or
+            //  6. shr (signed)
+            //  7. shr (logical)
+            //  8. sub
+            //  9. uge
+            // 10. ugt
+            // 11. ule
+            // 12. xor
+            //
+            // Note that they only use "bvshr" which doesn't specify if the
+            // right shift is signed or logical, but `p13` uses two right
+            // shifts, and for it to be correct the first has to be signed and
+            // the second has to be logical. It was really annoying to figure
+            // that out!
+            //
+            // Finally, it isn't 100% clear to me if they synthesized the
+            // various constants that appear in their solutions, or if they
+            // provided them as components. By my reading, it sort of seems like
+            // they did a mix. So we leave constants out of this library, and
+            // kick that problem down the road to callers.
             components: vec![
+                // 1.
+                component::add(),
+                // 2.
                 component::and(),
-                component::or(),
-                component::xor(),
-                component::shl(),
-                component::shr_u(),
-                component::eq(),
-                component::ne(),
-                component::add(),
+                // 3. neg(x) = 0 - x
+                component::const_(Some(0)),
                 component::sub(),
-                // add1
-                component::const_(Some(1)),
-                component::add(),
-                // not(a) = a xor MAX
+                // 4. not(a) = xor a, MAX
                 component::const_(Some(std::u64::MAX)),
+                component::xor(),
+                // 5.
+                component::or(),
+                // 6.
+                component::shr_s(),
+                // 7.
+                component::shr_u(),
+                // 8.
+                component::sub(),
+                // 9.
+                component::ge_u(),
+                // 10.
+                component::gt_u(),
+                // 11. ule
+                component::le_u(),
+                // 12.
                 component::xor(),
             ],
         }
@@ -619,7 +665,15 @@ impl<'a> Synthesizer<'a> {
         output_line: u32,
         bit_width: u32,
     ) -> Result<Assignments> {
-        trace!("finite synthesis with inputs = {:?}", inputs);
+        debug!(
+            "finite synthesis at bit width {} with inputs = {:#018X?}",
+            bit_width,
+            {
+                let mut inputs: Vec<_> = inputs.iter().collect();
+                inputs.sort();
+                inputs
+            }
+        );
 
         let immediates = self.fresh_immediates(bit_width);
         let mut works_for_inputs = Vec::with_capacity(inputs.len() * 4);
@@ -716,7 +770,7 @@ impl<'a> Synthesizer<'a> {
             z3::SatResult::Unknown => Err(Error::SynthesisUnknown),
             // There are no more inputs that don't satisfy the spec! We're done!
             z3::SatResult::Unsat => {
-                trace!(
+                debug!(
                     "verified to work for all inputs at bit width = {}",
                     bit_width
                 );
@@ -728,7 +782,7 @@ impl<'a> Synthesizer<'a> {
                 let model = solver.get_model();
                 self.add_invalid_assignment(assignments);
                 let inputs = eval_bitvecs(&model, &inputs);
-                trace!("found a counter-example: {:?}", inputs);
+                debug!("found a counter-example: {:?}", inputs);
                 Ok(Verification::Counterexample(inputs))
             }
         }
@@ -843,10 +897,7 @@ impl<'a> Synthesizer<'a> {
 
             match solver.check() {
                 z3::SatResult::Unknown => return Err(Error::SynthesisUnknown),
-                z3::SatResult::Unsat if inputs.is_empty() => {
-                    return Err(Error::SynthesisUnsatisfiable)
-                }
-                z3::SatResult::Unsat => break,
+                z3::SatResult::Unsat => return Err(Error::SynthesisUnsatisfiable),
                 z3::SatResult::Sat => {
                     let model = solver.get_model();
                     let new_inputs = eval_bitvecs(&model, &input_vars);
@@ -856,7 +907,6 @@ impl<'a> Synthesizer<'a> {
             }
         }
 
-        debug!("initial concrete inputs = {:?}", inputs);
         Ok(inputs)
     }
 
@@ -868,28 +918,46 @@ impl<'a> Synthesizer<'a> {
         let mut inputs = self.initial_concrete_inputs()?;
         assert!(!inputs.is_empty());
 
-        let longest = self.spec.arity() as u32 + self.library.components.len() as u32;
+        let arity = self.spec.arity();
+        assert!(arity > 0);
+
+        let longest = arity as u32 + self.library.components.len() as u32;
         let shortest = if self.should_synthesize_minimal_programs {
-            self.spec.arity() as u32 + 1
+            arity as u32 + 1
         } else {
             longest
         };
 
-        for length in shortest..=longest {
+        // In practice, the cost of searching for a program of length `n` and
+        // failing seems to be much more expensive than when there actually is a
+        // solution. Therefore, search for the longest programs first and the
+        // shortest last. Because we have dead code elimination, we can also
+        // skip ahead a bunch of iterations when we find long solutions that
+        // contain dead code.
+        let mut best = Err(Error::SynthesisUnknown);
+        let mut length = longest;
+        while length >= shortest {
             match self.synthesize_with_length(length, &mut inputs) {
-                Ok(p) => return Ok(p),
-                Err(Error::SynthesisUnsatisfiable) => {
+                Ok(mut program) => {
+                    program.dce();
+
+                    assert!(program.instructions.len() > arity);
+                    length = program.instructions.len() as u32 - 1;
+
+                    best = Ok(program);
+
                     // Reset the invalid-assignments clause, since an assignment
                     // that was an invalid program of length `i` might be valid
                     // at length `i+1`.
                     self.reset_invalid_assignments();
+
                     continue;
                 }
-                err => return err,
+                err => return best.or_else(|_| err),
             }
         }
 
-        Err(Error::SynthesisUnsatisfiable)
+        best
     }
 
     fn synthesize_with_length(
@@ -897,7 +965,7 @@ impl<'a> Synthesizer<'a> {
         program_length: u32,
         inputs: &mut HashSet<Vec<u64>>,
     ) -> Result<Program> {
-        trace!("synthesizing a program of length = {}", program_length);
+        debug!("synthesizing a program of length = {}", program_length);
 
         let mut bit_width = 2;
         'cegis: loop {
@@ -905,7 +973,7 @@ impl<'a> Synthesizer<'a> {
 
             let mut verifying_with_more_bits = false;
             loop {
-                trace!("verifying at bit width = {}", bit_width);
+                debug!("verifying at bit width = {}", bit_width);
                 match self.verification(&assignments, bit_width)? {
                     Verification::WorksForAllInputs => {
                         debug_assert!(bit_width <= FULL_BIT_WIDTH);

@@ -201,7 +201,7 @@ impl ProgramBuilder {
         result
     }
 
-    pub fn divs(&mut self, a: Id, b: Id) -> Id {
+    pub fn div_s(&mut self, a: Id, b: Id) -> Id {
         let result = self.next_id();
         self.program.instructions.push(Instruction {
             result,
@@ -210,7 +210,7 @@ impl ProgramBuilder {
         result
     }
 
-    pub fn divu(&mut self, a: Id, b: Id) -> Id {
+    pub fn div_u(&mut self, a: Id, b: Id) -> Id {
         let result = self.next_id();
         self.program.instructions.push(Instruction {
             result,
@@ -273,7 +273,7 @@ impl ProgramBuilder {
         result
     }
 
-    pub fn shrs(&mut self, a: Id, b: Id) -> Id {
+    pub fn shr_s(&mut self, a: Id, b: Id) -> Id {
         let result = self.next_id();
         self.program.instructions.push(Instruction {
             result,
@@ -282,7 +282,7 @@ impl ProgramBuilder {
         result
     }
 
-    pub fn shru(&mut self, a: Id, b: Id) -> Id {
+    pub fn shr_u(&mut self, a: Id, b: Id) -> Id {
         let result = self.next_id();
         self.program.instructions.push(Instruction {
             result,
