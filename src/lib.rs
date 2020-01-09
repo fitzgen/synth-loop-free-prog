@@ -91,7 +91,6 @@ where
 #[derive(Debug)]
 pub enum Error {
     NoComponents,
-    LibraryTooLarge,
     SynthesisUnsatisfiable,
     SynthesisUnknown,
 }
@@ -228,17 +227,6 @@ impl Library {
 
 type Line<'a> = BitVec<'a>;
 
-const MAX_LIBRARY_LEN: usize = std::u8::MAX as usize;
-const LINE_BITS: u32 = 8;
-
-fn line_from_u32<'a>(context: &'a z3::Context, line: u32) -> Line<'a> {
-    BitVec::from_i64(context, line as i64, LINE_BITS)
-}
-
-fn fresh_line<'a>(context: &'a z3::Context, name: &str) -> Line<'a> {
-    BitVec::fresh_const(context, name, LINE_BITS)
-}
-
 fn line_lt<'a>(lhs: &Line<'a>, rhs: &Line<'a>) -> Bool<'a> {
     lhs.bvult(rhs)
 }
@@ -253,30 +241,59 @@ struct LocationVars<'a> {
     params: Vec<Line<'a>>,
     results: Vec<Line<'a>>,
     output: Line<'a>,
+    line_bit_width: u32,
 }
 
 impl<'a> LocationVars<'a> {
     fn new(context: &'a z3::Context, library: &Library, num_inputs: usize) -> Self {
+        let max_line = num_inputs as u32
+            + library.components.len() as u32
+            + library
+                .components
+                .iter()
+                .map(|c| c.operand_arity() as u32)
+                .sum::<u32>();
+        let max_pow_2 = (max_line + 1).next_power_of_two();
+        // `2^n` are of the form `0b10..0` and `trailing_zeros(2^n)` is `n`. For
+        // example, `4 = 0b100` and `trailing_zeros(4) = 2`. Since we already
+        // added one before we took the next power of two, we only need as many
+        // bits as there are trailing zeros to represent every possible line
+        // number.
+        let line_bit_width = max_pow_2.trailing_zeros();
+
         let inputs = (0..num_inputs)
-            .map(|_| fresh_line(context, "input_location"))
+            .map(|_| Self::fresh_line(context, "input_location", line_bit_width))
             .collect();
         let params = library
             .components
             .iter()
-            .flat_map(|c| (0..c.operand_arity()).map(|_| fresh_line(context, "param_location")))
+            .flat_map(|c| {
+                (0..c.operand_arity())
+                    .map(|_| Self::fresh_line(context, "param_location", line_bit_width))
+            })
             .collect();
         let results = library
             .components
             .iter()
-            .map(|_| fresh_line(context, "result_location"))
+            .map(|_| Self::fresh_line(context, "result_location", line_bit_width))
             .collect();
-        let output = fresh_line(context, "output_line");
+        let output = Self::fresh_line(context, "output_line", line_bit_width);
         LocationVars {
             inputs,
             params,
             results,
             output,
+            line_bit_width,
         }
+    }
+
+    fn fresh_line(context: &'a z3::Context, name: &str, line_bit_width: u32) -> Line<'a> {
+        BitVec::fresh_const(context, name, line_bit_width)
+    }
+
+    fn line_from_u32(&self, context: &'a z3::Context, line: u32) -> Line<'a> {
+        assert!(line < (1 << self.line_bit_width));
+        BitVec::from_i64(context, line as i64, self.line_bit_width)
     }
 
     fn inputs_range(&self) -> Range<u32> {
@@ -360,12 +377,12 @@ impl<'a> LocationVars<'a> {
         wfp.push(self.consistent(context, invalid_connections));
         wfp.push(self.acyclic(context, library));
 
-        let i_len = line_from_u32(context, self.inputs.len() as u32);
-        let m = line_from_u32(context, (self.results.len() + self.inputs.len()) as u32);
-        let zero = line_from_u32(context, 0);
+        let i_len = self.line_from_u32(context, self.inputs.len() as u32);
+        let m = self.line_from_u32(context, (self.results.len() + self.inputs.len()) as u32);
+        let zero = self.line_from_u32(context, 0);
 
         for (i, l) in self.inputs.iter().enumerate() {
-            let i = line_from_u32(context, i as u32);
+            let i = self.line_from_u32(context, i as u32);
             wfp.push(l._eq(&i));
         }
 
@@ -510,9 +527,6 @@ impl<'a> Synthesizer<'a> {
         if library.components.is_empty() {
             return Err(Error::NoComponents);
         }
-        if library.components.len() > MAX_LIBRARY_LEN {
-            return Err(Error::LibraryTooLarge);
-        }
 
         let locations = LocationVars::new(context, library, spec.arity());
         let mut invalid_connections = locations.invalid_connections(library);
@@ -634,7 +648,7 @@ impl<'a> Synthesizer<'a> {
                 .iter()
                 .zip(&self.locations.params)
                 .map(|(assignment, location)| {
-                    location._eq(&line_from_u32(self.context, *assignment as _))
+                    location._eq(&self.locations.line_from_u32(self.context, *assignment as _))
                 })
                 .collect::<Vec<_>>(),
         );
@@ -646,7 +660,7 @@ impl<'a> Synthesizer<'a> {
                 .iter()
                 .zip(&self.locations.results)
                 .map(|(assignment, location)| {
-                    location._eq(&line_from_u32(self.context, *assignment as _))
+                    location._eq(&self.locations.line_from_u32(self.context, *assignment as _))
                 })
                 .collect::<Vec<_>>(),
         );
@@ -706,7 +720,7 @@ impl<'a> Synthesizer<'a> {
         let output_on_line = self
             .locations
             .output
-            ._eq(&line_from_u32(self.context, output_line));
+            ._eq(&self.locations.line_from_u32(self.context, output_line));
 
         let query = self
             .well_formed_program
@@ -948,7 +962,7 @@ impl<'a> Synthesizer<'a> {
 
                     // Reset the invalid-assignments clause, since an assignment
                     // that was an invalid program of length `i` might be valid
-                    // at length `i+1`.
+                    // at length `i-1`.
                     self.reset_invalid_assignments();
 
                     continue;
