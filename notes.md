@@ -1,10 +1,8 @@
-* TODO: verify that our desired program implements the bitvec popcnt as expected
-
 * TODO: try and combine `add` and `const 1` into a single `add1` component, and
   do the same for other combos, and see if that helps with synthesizing
   popcount. That is what brahma did, iiuc.
 
-* TODO: actually use the narrowest width for lines that we can
+* DONE: actually use the narrowest width for lines that we can
 
 * DONE: it seems like attempting to synthesize a too-minimal program takes too
   long, so it would be faster to go longest -> shortest, keeping only the last,
