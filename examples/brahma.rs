@@ -257,14 +257,23 @@ fn p7(context: &z3::Context, opts: &Options) -> SynthResult<Program> {
         } else {
             Some(1)
         }));
+    library
+        .components
+        .push(component::const_(if opts.synthesize_constants {
+            None
+        } else {
+            Some(std::u64::MAX)
+        }));
 
     let mut builder = ProgramBuilder::new();
-    let a = builder.var();
-    let b = builder.const_(std::u64::MAX);
-    let c = builder.xor(a, b);
-    let d = builder.const_(1);
-    let e = builder.add(c, d);
-    let _ = builder.and(c, e);
+    let x = builder.var();
+    // o1 = bvnot(x) = xor(x, MAX)
+    let a = builder.const_(std::u64::MAX);
+    let o1 = builder.xor(x, a);
+    // o2 = bvadd(x, 1)
+    let b = builder.const_(1);
+    let o2 = builder.add(x, b);
+    let _ = builder.and(o1, o2);
     let spec = builder.finish();
 
     synthesize(opts, context, &spec, &library)
