@@ -533,6 +533,7 @@ impl<'a> Synthesizer<'a> {
         let well_formed_program =
             locations.well_formed_program(context, library, &mut invalid_connections);
         let not_invalid_assignments = Bool::from_bool(context, true);
+
         Ok(Synthesizer {
             context,
             library,
@@ -567,14 +568,16 @@ impl<'a> Synthesizer<'a> {
         self
     }
 
-    fn solver(&mut self) -> z3::Solver<'a> {
-        let solver = z3::Solver::new(self.context);
-
-        if let Some(timeout) = self.timeout.clone() {
-            let millis = match timeout {
+    fn set_solver_timeout(
+        context: &'a z3::Context,
+        solver: &z3::Solver<'a>,
+        timeout: &mut Option<Timeout>,
+    ) {
+        if let Some(to) = timeout.clone() {
+            let millis = match to {
                 Timeout::Duration(d) => {
                     let millis = d.as_millis();
-                    self.timeout = Some(Timeout::Instant(time::Instant::now() + d));
+                    *timeout = Some(Timeout::Instant(time::Instant::now() + d));
                     millis as u32
                 }
                 Timeout::Instant(instant) => {
@@ -583,12 +586,16 @@ impl<'a> Synthesizer<'a> {
                 }
             };
 
-            let mut params = z3::Params::new(self.context);
+            let mut params = z3::Params::new(context);
             params.set_u32("timeout", millis);
 
             solver.set_params(&params);
         }
+    }
 
+    fn new_solver(&mut self) -> z3::Solver<'a> {
+        let solver = z3::Solver::new(self.context);
+        Self::set_solver_timeout(self.context, &solver, &mut self.timeout);
         solver
     }
 
@@ -675,7 +682,7 @@ impl<'a> Synthesizer<'a> {
 
     fn finite_synthesis(
         &mut self,
-        inputs: &HashSet<Vec<u64>>,
+        inputs: &Vec<Vec<u64>>,
         output_line: u32,
         bit_width: u32,
     ) -> Result<Assignments> {
@@ -777,7 +784,7 @@ impl<'a> Synthesizer<'a> {
         let query = prog.and(&[&not_spec]);
         trace!("verification query =\n{:?}", query);
 
-        let solver = self.solver();
+        let solver = self.new_solver();
         solver.assert(&query);
 
         match solver.check() {
@@ -872,11 +879,11 @@ impl<'a> Synthesizer<'a> {
     /// took this technique from Souper. Presumably it lets the solver choose
     /// inputs that are more interesting than an RNG would have chosen, which
     /// later helps it synthesize better solutions more quickly.
-    fn initial_concrete_inputs(&mut self) -> Result<HashSet<Vec<u64>>> {
+    fn initial_concrete_inputs(&mut self) -> Result<Vec<Vec<u64>>> {
         // Taken from Souper.
         const NUM_INITIAL_INPUTS: usize = 4;
 
-        let mut inputs: HashSet<Vec<u64>> = HashSet::with_capacity(NUM_INITIAL_INPUTS);
+        let mut inputs = Vec::with_capacity(NUM_INITIAL_INPUTS);
 
         let input_vars: Vec<_> = (0..self.spec.arity())
             .map(|_| fresh_input(self.context, FULL_BIT_WIDTH))
@@ -906,7 +913,7 @@ impl<'a> Synthesizer<'a> {
             let query = spec.and(&[&not_existing_inputs]);
             trace!("initial concrete input synthesis query =\n{:?}", query);
 
-            let solver = self.solver();
+            let solver = self.new_solver();
             solver.assert(&query);
 
             match solver.check() {
@@ -915,8 +922,9 @@ impl<'a> Synthesizer<'a> {
                 z3::SatResult::Sat => {
                     let model = solver.get_model();
                     let new_inputs = eval_bitvecs(&model, &input_vars);
-                    let is_new = inputs.insert(new_inputs);
+                    let is_new = !inputs.contains(&new_inputs);
                     assert!(is_new);
+                    inputs.push(new_inputs);
                 }
             }
         }
@@ -977,7 +985,7 @@ impl<'a> Synthesizer<'a> {
     fn synthesize_with_length(
         &mut self,
         program_length: u32,
-        inputs: &mut HashSet<Vec<u64>>,
+        inputs: &mut Vec<Vec<u64>>,
     ) -> Result<Program> {
         debug!("synthesizing a program of length = {}", program_length);
 
@@ -1004,8 +1012,11 @@ impl<'a> Synthesizer<'a> {
                         }
                     }
                     Verification::Counterexample(new_inputs) => {
-                        let is_new = inputs.insert(new_inputs);
+                        let is_new = inputs.contains(&new_inputs);
                         assert!(is_new || verifying_with_more_bits);
+                        if !is_new {
+                            inputs.push(new_inputs);
+                        }
                         continue 'cegis;
                     }
                 }
