@@ -1110,3 +1110,44 @@ impl Component for Operator {
         with_operator_component!(self, |c| c.immediate_arity())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clz_test() {
+        let _ = env_logger::try_init();
+        let cfg = z3::Config::new();
+        let ctx = z3::Context::new(&cfg);
+
+        // 0000 0000 0000 0000 0000 0000 0000 0010
+        assert!(clz()
+            .make_expression(&ctx, &vec![], &vec![bit_vec_from_u64(&ctx, 2, 32)], 32)
+            ._eq(&bit_vec_from_u64(&ctx, 30, 32))
+            .simplify()
+            .as_bool()
+            .unwrap());
+        // all zeroes
+        assert!(clz()
+            .make_expression(&ctx, &vec![], &vec![bit_vec_from_u64(&ctx, 0, 32)], 32)
+            ._eq(&bit_vec_from_u64(&ctx, 32, 32))
+            .simplify()
+            .as_bool()
+            .unwrap());
+        // all ones
+        assert!(clz()
+            .make_expression(&ctx, &vec![], &vec![z3::ast::BV::from_i64(&ctx, -1, 32)], 32)
+            ._eq(&bit_vec_from_u64(&ctx, 0, 32))
+            .simplify()
+            .as_bool()
+            .unwrap());
+        // 00 1010
+        assert!(clz()
+            .make_expression(&ctx, &vec![], &vec![bit_vec_from_u64(&ctx, 10, 6)], 6)
+            ._eq(&bit_vec_from_u64(&ctx, 2, 6))
+            .simplify()
+            .as_bool()
+            .unwrap());
+    }
+}
