@@ -134,13 +134,16 @@ impl Component for Clz {
             if i == bit_width {
                 bit_vec_from_u64(context, i as u64, bit_width)
             } else {
-                input.extract(bit_width - 1 - i,  bit_width - 1 -i)._eq(&one_bit).ite(
-                    &bit_vec_from_u64(context, i as u64, bit_width),
-                    &clz(context, input, one_bit, bit_width, i + 1),
-                )
+                input
+                    .extract(bit_width - 1 - i, bit_width - 1 - i)
+                    ._eq(&one_bit)
+                    .ite(
+                        &bit_vec_from_u64(context, i as u64, bit_width),
+                        &clz(context, input, one_bit, bit_width, i + 1),
+                    )
             }
         }
-    
+
         let one_bit = BitVec::from_i64(context, 1, 1);
         clz(context, &operands[0], &one_bit, bit_width, 0)
     }
@@ -184,7 +187,7 @@ impl Component for Ctz {
                     &ctz(context, input, one_bit, bit_width, i + 1),
                 )
             }
-        }    
+        }
 
         let one_bit = BitVec::from_i64(context, 1, 1);
         ctz(context, &operands[0], &one_bit, bit_width, 0)
@@ -1134,7 +1137,12 @@ mod tests {
             .unwrap());
         // all ones
         assert!(ctz()
-            .make_expression(&ctx, &vec![], &vec![z3::ast::BV::from_i64(&ctx, -1, 32)], 32)
+            .make_expression(
+                &ctx,
+                &vec![],
+                &vec![z3::ast::BV::from_i64(&ctx, -1, 32)],
+                32
+            )
             ._eq(&bit_vec_from_u64(&ctx, 0, 32))
             .simplify()
             .as_bool()
@@ -1170,7 +1178,12 @@ mod tests {
             .unwrap());
         // all ones
         assert!(clz()
-            .make_expression(&ctx, &vec![], &vec![z3::ast::BV::from_i64(&ctx, -1, 32)], 32)
+            .make_expression(
+                &ctx,
+                &vec![],
+                &vec![z3::ast::BV::from_i64(&ctx, -1, 32)],
+                32
+            )
             ._eq(&bit_vec_from_u64(&ctx, 0, 32))
             .simplify()
             .as_bool()
