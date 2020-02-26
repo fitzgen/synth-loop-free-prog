@@ -127,22 +127,22 @@ impl Component for Clz {
         fn clz<'a>(
             context: &'a z3::Context,
             input: &BitVec<'a>,
-            zero_bit: &BitVec<'a>,
+            one_bit: &BitVec<'a>,
             bit_width: u32,
             i: u32,
         ) -> BitVec<'a> {
             if i == bit_width {
                 bit_vec_from_u64(context, i as u64, bit_width)
             } else {
-                input.extract(i, i)._eq(&zero_bit).ite(
+                input.extract(bit_width - 1 - i,  bit_width - 1 -i)._eq(&one_bit).ite(
                     &bit_vec_from_u64(context, i as u64, bit_width),
-                    &clz(context, input, zero_bit, bit_width, i + 1),
+                    &clz(context, input, one_bit, bit_width, i + 1),
                 )
             }
         }
-
-        let zero_bit = BitVec::from_i64(context, 0, 1);
-        clz(context, &operands[0], &zero_bit, bit_width, 0)
+    
+        let one_bit = BitVec::from_i64(context, 1, 1);
+        clz(context, &operands[0], &one_bit, bit_width, 0)
     }
 }
 
@@ -172,25 +172,22 @@ impl Component for Ctz {
         fn ctz<'a>(
             context: &'a z3::Context,
             input: &BitVec<'a>,
-            zero_bit: &BitVec<'a>,
+            one_bit: &BitVec<'a>,
             bit_width: u32,
             i: u32,
         ) -> BitVec<'a> {
             if i == bit_width {
                 bit_vec_from_u64(context, i as u64, bit_width)
             } else {
-                input
-                    .extract(bit_width - i - 1, bit_width - i - 1)
-                    ._eq(&zero_bit)
-                    .ite(
-                        &bit_vec_from_u64(context, i as u64, bit_width),
-                        &ctz(context, input, zero_bit, bit_width, i + 1),
-                    )
+                input.extract(i, i)._eq(&one_bit).ite(
+                    &bit_vec_from_u64(context, i as u64, bit_width),
+                    &ctz(context, input, one_bit, bit_width, i + 1),
+                )
             }
-        }
+        }    
 
-        let zero_bit = BitVec::from_i64(context, 0, 1);
-        ctz(context, &operands[0], &zero_bit, bit_width, 0)
+        let one_bit = BitVec::from_i64(context, 1, 1);
+        ctz(context, &operands[0], &one_bit, bit_width, 0)
     }
 }
 
@@ -1114,6 +1111,42 @@ impl Component for Operator {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ctz_test() {
+        let _ = env_logger::try_init();
+        let cfg = z3::Config::new();
+        let ctx = z3::Context::new(&cfg);
+
+        // 0000 0000 0000 0000 0000 0000 0000 0010
+        assert!(ctz()
+            .make_expression(&ctx, &vec![], &vec![bit_vec_from_u64(&ctx, 2, 32)], 32)
+            ._eq(&bit_vec_from_u64(&ctx, 1, 32))
+            .simplify()
+            .as_bool()
+            .unwrap());
+        // all zeroes
+        assert!(ctz()
+            .make_expression(&ctx, &vec![], &vec![bit_vec_from_u64(&ctx, 0, 32)], 32)
+            ._eq(&bit_vec_from_u64(&ctx, 32, 32))
+            .simplify()
+            .as_bool()
+            .unwrap());
+        // all ones
+        assert!(ctz()
+            .make_expression(&ctx, &vec![], &vec![z3::ast::BV::from_i64(&ctx, -1, 32)], 32)
+            ._eq(&bit_vec_from_u64(&ctx, 0, 32))
+            .simplify()
+            .as_bool()
+            .unwrap());
+        // 00 1010
+        assert!(ctz()
+            .make_expression(&ctx, &vec![], &vec![bit_vec_from_u64(&ctx, 10, 6)], 6)
+            ._eq(&bit_vec_from_u64(&ctx, 1, 6))
+            .simplify()
+            .as_bool()
+            .unwrap());
+    }
 
     #[test]
     fn clz_test() {
