@@ -4,6 +4,9 @@ Implementing [*Synthesis of Loop-free Programs* by Gulwani et
 al](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/12/pldi11-loopfree-synthesis.pdf)
 in Rust, using the [Z3][] solver.
 
+I explain the paper and walk through this implementation in my blog post
+[*Synthesizing Loop-Free Programs with Rust and Z3*](https://fitzgeraldnick.com/2020/01/13/synthesizing-loop-free-programs.html).
+
 ## Example
 
 ```rust
